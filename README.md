@@ -14,13 +14,20 @@ Planets: Mars, the Moon and Verdanta.
 
 ## Running locally
 
-Any static server will do (ES modules don't load from `file://`):
+With Node (instant reload while editing):
+
+```bash
+npm install
+npm run dev      # http://localhost:5173/
+npm run build    # production build into dist/ (hashed file names)
+```
+
+Or with no tooling at all — the game also runs unbuilt from any static server
+(ES modules don't load from `file://`):
 
 ```bash
 python3 serve.py 5173
 ```
-
-Then open <http://localhost:5173/>.
 
 ## Controls
 
