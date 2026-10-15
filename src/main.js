@@ -17,6 +17,7 @@ import { createJobs } from './jobs.js';
 import { createNPCs } from './npc.js';
 import { createTracks } from './tracks.js';
 import { createSand } from './sand.js';
+import { createLoose } from './loose.js';
 import { createKickup } from './kickup.js';
 import { createGrass } from './grass.js';
 import { createWater } from './water.js';
@@ -321,6 +322,10 @@ const seeds = PLANET === 'verdanta' ? createSeeds() : null;
 if (seeds) scene.add(seeds.group);
 const upgrades = createUpgrades(debris, missions);
 const sand = createSand();
+// Loose stones the hull shoves aside, simulated by Rapier (loaded after start).
+const loose = createLoose();
+scene.add(loose.mesh);
+const looseCtx = { x: 0, z: 0, pos: null, quat: null };
 scene.add(sand.points);
 // Clods and stones flung up off the tyres (kickup.js).
 const kickup = createKickup();
@@ -1927,6 +1932,11 @@ function frame() {
   }
 
   sand.update(dt, sandCtx);
+  looseCtx.x = sim.pos.x;
+  looseCtx.z = sim.pos.z;
+  looseCtx.pos = sim.pos;
+  looseCtx.quat = sim.quat;
+  loose.update(dt, looseCtx);
   sandCtx.wind = 1 + 3 * weather.w;
   grass.update(dt, sandCtx);
   water.update(dt, sandCtx);
@@ -2089,6 +2099,6 @@ try {
 } catch (e) { /* storage may be blocked */ }
 
 // debug hook: inspect state and scrub the sol from the console
-window.game = { kickup, applyPreset, dirt, tracks, weather, contactShadow, vehicle, landmarks, jobs, npcs, roadPosts, missions, debris, upgrades, dust, sonar, get sonarScan() { return sonarScan; }, sim, camera, controls, power, renderer, scene, terrain, post, sunShadows, ambient, route, minimap, auto, sand, grass, water, splash, setTime: (t) => { timeOfDay = t % 1; }, get timeOfDay() { return timeOfDay; } };
+window.game = { loose, kickup, applyPreset, dirt, tracks, weather, contactShadow, vehicle, landmarks, jobs, npcs, roadPosts, missions, debris, upgrades, dust, sonar, get sonarScan() { return sonarScan; }, sim, camera, controls, power, renderer, scene, terrain, post, sunShadows, ambient, route, minimap, auto, sand, grass, water, splash, setTime: (t) => { timeOfDay = t % 1; }, get timeOfDay() { return timeOfDay; } };
 document.getElementById('loading').classList.add('hidden');
 frame();

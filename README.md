@@ -63,6 +63,7 @@ The strip at the top centre is a compass showing your heading.
 | `src/vehicle.js` | rover models, wheels, solar wings |
 | `src/chassis.js` | chassis specs: range, terrain ability, steering |
 | `src/terrain.js` | relief, the S-shaped road, streamed tiles, landmarks |
+| `src/loose.js` | loose stones the hull shoves aside, simulated with Rapier (WASM) |
 | `src/tracks.js` | tyre tracks |
 | `src/base.js` | base with a beacon |
 | `src/sky.js` | sky, day and night cycle |
@@ -70,6 +71,8 @@ The strip at the top centre is a compass showing your heading.
 | `src/audio.js` | synthesized sound, no audio files |
 | `src/minimap3d.js` | the relief map scene |
 | `src/main.js` | scene, controls, power, HUD |
+
+Ground and rock surfaces use scanned CC0 textures from Poly Haven (`textures/CREDITS.md`).
 
 Physics runs in SI units with each planet's gravity (Mars 3.71 m/s²). The relief is
 a function and only the visible part is built, in tiles around the rover, so a
