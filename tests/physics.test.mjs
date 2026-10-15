@@ -132,3 +132,87 @@ test('stops at a building wall instead of driving through', async () => {
   assert.ok(deepest[1] < 0.5, 'rapier rover drove into the building');
   assert.ok(closest[1] > 2, 'rapier rover reached the middle of the building');
 });
+
+test('wheels turn with the ground speed and stop when the rover stops', async () => {
+  const [, b] = await both();
+  run(b, 3, { throttle: 1, steer: 0, brake: 0 });
+  const w = b.wheels[0];
+  const rolling = b.speed / w.R;
+  console.log(`  wheel spin while driving ${fmt(w.spinRate)} rad/s (speed/R ${fmt(rolling)})`);
+  assert.ok(Math.abs(w.spinRate - rolling) < Math.abs(rolling) * 0.35, 'wheel spin does not match the speed');
+  run(b, 6, { throttle: 0, steer: 0, brake: 1 });
+  console.log(`  after stopping ${fmt(w.spinRate)} rad/s`);
+  assert.ok(Math.abs(w.spinRate) < 0.05, 'wheels keep turning with the rover stopped');
+});
+
+test('rides rough ground at least as smoothly as the old sim, and stays on its wheels', async () => {
+  const { ride, classic, rapier } = await import('./ride.mjs');
+  const { SPEC } = await import('../src/chassis.js');
+  const routes = [[0.4, 900, 400], [2.0, -700, 1200], [4.2, 1500, -900]];
+  const sum = async (make) => {
+    const rs = [];
+    for (const [h, x, z] of routes) rs.push(await ride(make, 25, h, x, z));
+    const avg = (k) => rs.reduce((a, r) => a + r[k], 0) / rs.length;
+    return { rms: avg('rms'), jolts: avg('jolts'), rolled: rs.filter((r) => !r.upright).length };
+  };
+  const a = await sum(classic), b = await sum(rapier);
+  console.log(`  ride: old RMS ${fmt(a.rms)} g, ${fmt(a.jolts)} jolts/s, rolled ${a.rolled} · rapier RMS ${fmt(b.rms)} g, ${fmt(b.jolts)} jolts/s, rolled ${b.rolled}`);
+  assert.ok(b.rms < Math.max(a.rms * 1.3, 0.9), 'shakes much harder than the old sim');
+  assert.ok(b.jolts < Math.max(a.jolts * 1.5, 30), 'jolts much more often than the old sim');
+  // A road car (the speedster) is not expected to cope with open rough ground.
+  if (SPEC.terrain.offDrag < 3) assert.ok(b.rolled <= a.rolled, 'rolls over where the old sim did not');
+});
+
+test('R puts a rover lying on its roof back on its wheels', async () => {
+  const THREE = await import('three');
+  const [, b] = await both();
+  run(b, 1, IDLE);
+  // Roll it onto its roof and let it settle there.
+  b.body.setTranslation({ x: b.pos.x, y: b.pos.y + 2, z: b.pos.z }, true);
+  b.body.setRotation({ x: 0, y: 0, z: 1, w: 0 }, true);
+  run(b, 3, IDLE);
+  assert.ok(b.upY < -0.5, 'did not end up on its roof for the test');
+  // What main.js's righting does each frame for 0.8 s: ease the pose upright, then
+  // hand it to the sim (syncFromSim) — the step Rapier needs to see the change.
+  const want = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), b.yaw());
+  for (let t = 0; t < 0.8; t += DT) {
+    b.quat.slerp(want, 1 - Math.exp(-9 * DT));
+    b.pos.y += (groundHeight(b.pos.x, b.pos.z) + 2.2 - b.pos.y) * 0.2;
+    b.vel.multiplyScalar(0.8);
+    b.angVel.multiplyScalar(0.8);
+    b.refresh();
+    b.syncFromSim();
+    b.update(0.0001, { throttle: 0, steer: 0, brake: 1 });
+  }
+  run(b, 2, IDLE);
+  console.log(`  after R: upY ${fmt(b.upY)}, wheels down ${b.wheels.filter((w) => w.contact).length}/${b.wheels.length}`);
+  assert.ok(b.upY > 0.9, 'still not upright');
+  assert.ok(b.wheels.every((w) => w.contact), 'not standing on all wheels');
+});
+
+test('a rover knocked onto its side stops rolling instead of barrel-rolling on', async () => {
+  const [, b] = await both();
+  run(b, 1, IDLE);
+  // On its side, given a shove into a roll.
+  b.body.setTranslation({ x: b.pos.x, y: b.pos.y + 1, z: b.pos.z }, true);
+  b.body.setRotation({ x: 0, y: 0, z: Math.SQRT1_2, w: Math.SQRT1_2 }, true);
+  b.body.setAngvel({ x: 0, y: 0, z: 3 }, true);
+  run(b, 6, IDLE);
+  const spin = b.angVel.length();
+  console.log(`  rolled: spin after 6 s ${fmt(spin)} rad/s`);
+  assert.ok(spin < 0.3, 'still rolling');
+});
+
+test('wheels spin up in the air under throttle and stop on the brake', async () => {
+  const [, b] = await both();
+  run(b, 1, IDLE);
+  b.body.setTranslation({ x: b.pos.x, y: b.pos.y + 40, z: b.pos.z }, true);
+  run(b, 0.5, { throttle: 1, steer: 0, brake: 0 });
+  const up = b.wheels[0].spinRate;
+  run(b, 0.4, { throttle: 0, steer: 0, brake: 1 });
+  const braked = b.wheels[0].spinRate;
+  console.log(`  in the air: throttle → ${fmt(up)} rad/s, brake → ${fmt(braked)} rad/s`);
+  assert.ok(b.wheels.every((w) => !w.contact), 'not actually in the air');
+  assert.ok(up > 5, 'wheels do not spin up in the air');
+  assert.ok(Math.abs(braked) < Math.abs(up) * 0.1, 'brake does not stop them');
+});

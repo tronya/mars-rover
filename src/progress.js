@@ -103,6 +103,7 @@ export function newGame() {
   }
   try {
     localStorage.setItem('rover.planet', 'mars');
+    localStorage.setItem('rover.chassis', 'truck'); // every expedition starts in the scout
     localStorage.setItem(KEY, JSON.stringify({ ...FRESH(), started: true }));
     sessionStorage.setItem(SKIP_MENU, '1');
   } catch (e) { /* storage may be blocked */ }

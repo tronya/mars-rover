@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { VehicleSim, GRAVITY } from './physics.js';
 import { groundHeight, deckHeight, landmarkWall, setDeckRef, waterDepthAt } from './terrain.js';
-import { SPEC, WHEEL_DEFS, steerAngle } from './chassis.js';
+import { SPEC, WHEEL_DEFS, AXLE_PAIRS, steerAngle } from './chassis.js';
 import { SUSP } from './vehicle.js';
 
 // The rover driven by Rapier (a real rigid-body engine, WASM) instead of physics.js's
@@ -25,6 +25,37 @@ const COM = new THREE.Vector3(0, SPEC.comY, 0);
 const BOX = SPEC.box;
 const S_STATIC = SUSP.Lfree - SUSP.Lstatic;
 const BRAKE_FORCE = 3.2 * CORNER;
+// Suspension rates as physics.js has them, per unit of chassis mass (that is how
+// Rapier scales its suspension force): linear spring holding the static sag, a
+// progressive term past it, bump/rebound damping, and a bump-stop zone that stiffens
+// smoothly over the last BUMP_ZONE of travel instead of hitting the end of the ray.
+const K_LIN = GRAVITY / (NW * S_STATIC);
+const K_PROG = K_LIN / SPEC.progLen;
+// Dampers as a fraction of critical for whatever the spring is doing right now, so a
+// soft long-travel chassis is still settled rather than left pogoing. SPEC.damp
+// softens them for the chassis meant to be lively, but never below a floor.
+const ZETA_BUMP = 0.3 * (0.6 + 0.4 * SPEC.damp.bump);
+const ZETA_REBOUND = 0.5 * (0.6 + 0.4 * SPEC.damp.rebound);
+const C_BUMP = ZETA_BUMP * 2 * Math.sqrt(K_LIN);
+const C_REBOUND = ZETA_REBOUND * 2 * Math.sqrt(K_LIN);
+const BUMP_ZONE = 0.16;
+// Tipped past ~60° the wheels can't be what holds the rover up: their rays would hit
+// the ground sideways and shove it into a barrel roll. Suspension, drive and grip
+// fade out between these (physics.js does the same).
+const UP_MIN = 0.5;
+const UP_FADE = 0.8;
+// Angular drag, negligible while driving but bleeding off a tumble in a couple of
+// seconds, and a hard cap on spin — as physics.js.
+const W_DRAG_LIN = 0.08;
+const W_DRAG_SQ = 0.35;
+const W_LIMIT = 6;
+const smooth01 = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+// Rapier's tyres hold sideways harder than physics.js's soft-kneed friction circle;
+// a little less side grip lets a hard turn slide before it rolls the body over.
+const SIDE_GRIP = 1;
+// Anti-roll bar per axle (physics.js has the same): the more one side of an axle is
+// compressed than the other, the harder it is held up and the other side pulled down.
+const K_ARB = 26000 * (MASS / 2500);
 const ROLLING_RES = 0.17;
 const DRAG_V2 = 22 * (SPEC.drag ?? 1);
 const DOWNFORCE = SPEC.downforce ?? 0;
@@ -87,6 +118,9 @@ export class RapierVehicleSim extends VehicleSim {
     this.engine = 'rapier';
     const world = (this.world = new R.World({ x: 0, y: -GRAVITY, z: 0 }));
     world.integrationParameters.numSolverIterations = 8;
+    // Softer contacts than the default 30 Hz: a hull striking the ground gives a
+    // little, like physics.js caps its hull impulses, instead of a rigid jolt.
+    world.integrationParameters.contact_natural_frequency = 8;
 
     const body = (this.body = world.createRigidBody(
       R.RigidBodyDesc.dynamic()
@@ -104,9 +138,26 @@ export class RapierVehicleSim extends VehicleSim {
       R.ColliderDesc.cuboid((hi.x - lo.x) / 2, (hi.y - lo.y) / 2, (hi.z - lo.z) / 2)
         .setTranslation(c.x, c.y, c.z)
         .setDensity(0)
-        .setFriction(0.7),
+        .setFriction(0.35), // a beached hull slides off a rock instead of sticking
       body
     );
+
+    // The outer faces of the tyres, as physics.js has them: standing well proud of
+    // the flank, they are what a rover lying on its side rests on, wide enough to
+    // hold the low centre of mass there instead of rocking it back over onto its
+    // wheels and through to the other side. Kept within ±0.55 of the radius around
+    // the hub, so they never reach the ground while driving.
+    for (const w of WHEEL_DEFS) {
+      const face = Array.isArray(SPEC.tyreFaceX) ? SPEC.tyreFaceX[w.axle] : SPEC.tyreFaceX;
+      const hy = w.my - SUSP.Lstatic - COM.y;
+      world.createCollider(
+        R.ColliderDesc.cuboid(0.12, 0.55 * w.R, 0.55 * w.R)
+          .setTranslation(w.s * face, hy, w.z - COM.z)
+          .setDensity(0)
+          .setFriction(0.6),
+        body
+      );
+    }
 
     // Wheels. Rapier's suspension force is per unit of chassis mass, so the stiffness
     // that holds the static sag is g / (wheels × sag); dampers at 40 % / 65 % of
@@ -114,23 +165,24 @@ export class RapierVehicleSim extends VehicleSim {
     const ctl = (this.ctl = world.createVehicleController(body));
     ctl.indexUpAxis = 1;
     ctl.setIndexForwardAxis = 2;
-    const k = GRAVITY / (NW * S_STATIC);
-    const crit = 2 * Math.sqrt(k);
     WHEEL_DEFS.forEach((w, i) => {
       ctl.addWheel(
         { x: w.x, y: w.my - COM.y, z: w.z - COM.z },
         { x: 0, y: -1, z: 0 },
         { x: -1, y: 0, z: 0 },
-        SUSP.Lfree,
+        // The ray reaches down to full droop (Lmax), past the spring's free length,
+        // so a wheel over a dip still finds the ground; the spring itself is set per
+        // step (see step) to push only while compressed past Lfree.
+        SUSP.Lmax,
         w.R
       );
-      ctl.setWheelSuspensionStiffness(i, k);
-      ctl.setWheelSuspensionCompression(i, crit * 0.4 * SPEC.damp.bump);
-      ctl.setWheelSuspensionRelaxation(i, crit * 0.65 * SPEC.damp.rebound);
-      ctl.setWheelMaxSuspensionTravel(i, SUSP.Lfree - SUSP.Lmin);
+      ctl.setWheelSuspensionStiffness(i, K_LIN);
+      ctl.setWheelSuspensionCompression(i, C_BUMP);
+      ctl.setWheelSuspensionRelaxation(i, C_REBOUND);
+      ctl.setWheelMaxSuspensionTravel(i, SUSP.Lmax - SUSP.Lmin);
       ctl.setWheelMaxSuspensionForce(i, 9 * CORNER);
       ctl.setWheelFrictionSlip(i, SPEC.mu * (w.mu ?? 1));
-      ctl.setWheelSideFrictionStiffness(i, 1);
+      ctl.setWheelSideFrictionStiffness(i, SIDE_GRIP);
     });
 
     this.tiles = new Map(); // "i,j" → collider
@@ -224,6 +276,7 @@ export class RapierVehicleSim extends VehicleSim {
       else if (!this.awd && speed < AWD_DOWN) this.awd = true;
     }
     const driven = this.awd ? NW : NW - N_FRONT;
+    const upright = smooth01(UP_MIN, UP_FADE, this.upY);
     // Skid steer: the two sides pull differently. Rapier's tyres hold sideways far too
     // hard for that difference alone to swing the hull, so each wheel gets the mean
     // pull and the difference goes straight onto the body as a yaw torque.
@@ -242,7 +295,7 @@ export class RapierVehicleSim extends VehicleSim {
         }
       }
       const isDriven = this.awd || !w.front;
-      forces[i] = isDriven ? this.driveForce(thr, speed) / driven : 0;
+      forces[i] = upright * (isDriven ? this.driveForce(thr, speed) / driven : 0);
       if (SKID) {
         skidMean += forces[i] / NW;
         if (this.wheels[i].contact) skidTorque += -w.x * forces[i] * SKID_GAIN;
@@ -251,11 +304,24 @@ export class RapierVehicleSim extends VehicleSim {
       // Rapier's brake is an impulse budget per step; parked means hold firm.
       const brakeF = cmd.parked ? BRAKE_FORCE * 2 : cmd.brake * BRAKE_FORCE + skidBrake;
       ctl.setWheelBrake(i, brakeF * h);
-      ctl.setWheelFrictionSlip(i, SPEC.mu * (w.mu ?? 1) * this.gripMul);
+      ctl.setWheelFrictionSlip(i, upright * SPEC.mu * (w.mu ?? 1) * this.gripMul);
+      // Spring and damper for where this corner is in its travel right now.
+      const L = this.wheels[i].L;
+      const comp = SUSP.Lfree - L;
+      const dyn = Math.max(0, comp - S_STATIC);
+      const near = Math.max(0, SUSP.Lmin + BUMP_ZONE - L) / BUMP_ZONE; // 0 → 1 into the bump stop
+      const kEff = (K_LIN + (K_PROG * dyn * dyn) / Math.max(comp, 1e-3)) * (1 + 3 * near * near) * this.suspMul;
+      const crit = 2 * Math.sqrt(kEff);
+      // Rapier's spring pushes by stiffness × (rest − L) with rest = Lmax; scale it so
+      // the push is the real spring's, kEff × (Lfree − L), and nothing once extended.
+      ctl.setWheelSuspensionStiffness(i, upright * (comp > 0 ? (kEff * comp) / Math.max(0.02, SUSP.Lmax - L) : 0));
+      ctl.setWheelMaxSuspensionForce(i, upright * 9 * CORNER);
+      ctl.setWheelSuspensionCompression(i, crit * ZETA_BUMP * (1 + 1.5 * near));
+      ctl.setWheelSuspensionRelaxation(i, crit * ZETA_REBOUND);
       // Turning a skid-steer means scrubbing every tyre sideways: the tread has to let
       // go sideways for the hull to swing at all (physics.js does the same, milder —
       // Rapier's side friction holds much harder).
-      if (SKID) ctl.setWheelSideFrictionStiffness(i, 1 - 0.985 * Math.min(1, Math.abs(cmd.steer / MECH_STEER) * 1.5));
+      if (SKID) ctl.setWheelSideFrictionStiffness(i, SIDE_GRIP * (1 - 0.985 * Math.min(1, Math.abs(cmd.steer / MECH_STEER) * 1.5)));
     });
 
     if (SKID) for (let i = 0; i < NW; i++) ctl.setWheelEngineForce(i, skidMean);
@@ -280,11 +346,34 @@ export class RapierVehicleSim extends VehicleSim {
       body.addForce({ x: -up.x * d, y: -up.y * d, z: -up.z * d }, true);
     }
 
+    this.antiRoll();
     this.world.timestep = h;
+    this.lastH = h;
     ctl.updateVehicle(h);
     this.world.step();
+    const w = body.angvel();
+    const spin = Math.hypot(w.x, w.y, w.z);
+    if (spin > 1e-4) {
+      const k = (1 - Math.min(0.5, (W_DRAG_LIN + W_DRAG_SQ * spin) * h)) * Math.min(1, W_LIMIT / spin);
+      body.setAngvel({ x: w.x * k, y: w.y * k, z: w.z * k }, true);
+    }
     this.pushOutOfWalls();
     this.readBack();
+  }
+
+  antiRoll() {
+    const { body, ctl } = this;
+    up.set(0, 1, 0).applyQuaternion(this.quat);
+    for (const [a, b] of AXLE_PAIRS) {
+      const wa = this.wheels[a], wb = this.wheels[b];
+      if (!wa.contact || !wb.contact) continue;
+      const f = K_ARB * (wb.L - wa.L) * this.suspMul; // + when a is the more compressed
+      for (const [i, sign] of [[a, 1], [b, -1]]) {
+        const hp = ctl.wheelHardPoint(i);
+        if (!hp) continue;
+        body.addForceAtPoint({ x: up.x * f * sign, y: up.y * f * sign, z: up.z * f * sign }, hp, true);
+      }
+    }
   }
 
   // Building walls: push the hull's corners back out along the wall normal and
@@ -341,7 +430,20 @@ export class RapierVehicleSim extends VehicleSim {
           wh.cz = hp.z;
         }
       }
-      wh.spinRate = (ctl.wheelRotation(i) ?? 0);
+      // Rapier reports the wheel's accumulated angle; the game wants a rate, so take
+      // the change since the last step.
+      const rot = ctl.wheelRotation(i) ?? 0;
+      if (wh.contact) wh.spinRate = wh.rot === undefined ? 0 : (rot - wh.rot) / this.lastH;
+      else {
+        // In the air nothing holds the tyre to road speed: under throttle it spins
+        // up freely, off throttle it freewheels, on the brake it stops (physics.js).
+        const thr = this.cmd.throttle;
+        const freeMax = (SPEC.vMaxBoost * 1.5) / WHEEL_DEFS[i].R;
+        if (this.cmd.brake > 0) wh.spinRate *= 0.9;
+        else if (thr !== 0) wh.spinRate = Math.min(freeMax, Math.max(-freeMax, wh.spinRate + Math.sign(thr) * freeMax * 5 * this.lastH));
+        else wh.spinRate *= 0.9995;
+      }
+      wh.rot = rot;
     }
   }
 }

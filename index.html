@@ -85,18 +85,61 @@
     #version { margin-left: 6px; }
     /* Start screen. Sits over the world, which is already built behind it, so
        "Продовжити" is instant; only "Нова гра" needs the reload. */
+    /* Main menu: full screen over the paused world, which shows through on the right. */
     #startMenu { position: fixed; inset: 0; z-index: 50; display: flex; align-items: center;
-      justify-content: center; background: rgba(12, 6, 4, 0.82); backdrop-filter: blur(3px); }
+      padding-left: max(28px, 8vw); background: linear-gradient(90deg, rgba(12, 6, 4, 0.92) 0%, rgba(12, 6, 4, 0.7) 38%, rgba(12, 6, 4, 0.1) 75%);
+      color: #fbeee0; }
     #startMenu.hidden { display: none; }
-    #startCard { text-align: center; padding: 34px 46px; }
-    #startCard b { display: block; font-size: 26px; letter-spacing: 0.26em; margin-bottom: 6px; }
-    #startTag { display: block; font-size: 11px; opacity: 0.7; letter-spacing: 0.1em; margin-bottom: 4px; }
-    #startWhere { display: block; font-size: 11px; opacity: 0.55; margin-bottom: 22px; }
-    #startCard button { display: block; width: 100%; margin-top: 9px; padding: 11px 26px;
-      background: rgba(255, 255, 255, 0.07); border: 1px solid rgba(255, 210, 170, 0.34);
-      color: inherit; font: inherit; font-size: 13px; letter-spacing: 0.16em; border-radius: 6px; cursor: pointer; }
-    #startCard button:hover { background: rgba(79, 208, 255, 0.2); border-color: rgba(79, 208, 255, 0.6); }
-    #startCard button.ghost { opacity: 0.6; font-size: 11px; letter-spacing: 0.1em; }
+    #startCard { width: min(360px, calc(100vw - 56px)); }
+    #startCard b { display: block; font-size: clamp(30px, 5vw, 46px); letter-spacing: 0.22em; margin-bottom: 8px; line-height: 1.05; }
+    #startTag { display: block; font-size: 12px; opacity: 0.75; letter-spacing: 0.12em; margin-bottom: 4px; }
+    #startWhere { display: block; font-size: 12px; opacity: 0.55; margin-bottom: 30px; }
+    #startCard button { display: block; width: 100%; margin-top: 10px; padding: 13px 18px; text-align: left;
+      background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 210, 170, 0.22);
+      color: inherit; font: inherit; font-size: 14px; letter-spacing: 0.18em; border-radius: 6px; cursor: pointer;
+      transition: background .12s, border-color .12s, padding-left .12s; }
+    #startCard button:hover, #startCard button.focus { background: rgba(79, 208, 255, 0.18); border-color: rgba(79, 208, 255, 0.6); padding-left: 24px; }
+    .startHint { display: block; margin-top: 22px; font-size: 11px; opacity: 0.4; letter-spacing: 0.12em; }
+    #menu { z-index: 60; }
+    /* The driving HUD stays out of the main menu and the garage. */
+    body.inMenu .panel:not(#menu):not(.gCard) { visibility: hidden; }
+    /* Garage: its own scene fills the screen; this is the UI over it. */
+    #garage { position: fixed; inset: 0; z-index: 55; color: #fbeee0; pointer-events: auto; }
+    #garage.hidden { display: none; }
+    #garage button { font: inherit; color: inherit; cursor: pointer; }
+    .gTop { position: absolute; left: 20px; right: 20px; top: 18px; display: flex; align-items: center; gap: 18px; }
+    .gTop b { font-size: 18px; letter-spacing: 0.3em; }
+    .gTop .gWallet { margin-left: auto; font-size: 13px; letter-spacing: 0.1em; opacity: 0.85; }
+    .gBack { background: rgba(255,255,255,0.06); border: 1px solid rgba(255,210,170,0.25); border-radius: 6px; padding: 8px 14px; letter-spacing: 0.14em; }
+    .gArrow { position: absolute; top: 45%; width: 52px; height: 52px; border-radius: 50%; font-size: 30px; line-height: 1;
+      background: rgba(40,18,10,0.55); border: 1px solid rgba(255,210,170,0.3); }
+    .gPrev { left: 20px; } .gNext { right: calc(min(360px, 34vw) + 40px); }
+    .gArrow:hover, .gBack:hover { border-color: rgba(79,208,255,0.6); background: rgba(79,208,255,0.16); }
+    .gCard { right: 20px; top: 70px; width: min(360px, 34vw); padding: 18px 20px; font-size: 12px; }
+    .gState { font-size: 11px; letter-spacing: 0.14em; opacity: 0.75; }
+    .gName { margin: 6px 0 8px; font-size: 22px; letter-spacing: 0.12em; font-weight: 700; }
+    .gBlurb { margin: 0 0 14px; line-height: 1.5; opacity: 0.85; }
+    .gStat { display: flex; align-items: center; gap: 10px; margin: 7px 0; }
+    .gStat span { width: 96px; opacity: 0.8; } .gStat b { width: 80px; text-align: right; font-weight: 400; opacity: 0.85; }
+    .gStat i { flex: 1; height: 6px; border-radius: 3px; background: rgba(255,255,255,0.1); overflow: hidden; }
+    .gStat em { display: block; height: 100%; background: linear-gradient(90deg, #ff9a52, #ffd08a); }
+    .gAction { width: 100%; margin-top: 16px; padding: 13px; border-radius: 6px; letter-spacing: 0.18em; font-size: 13px;
+      background: rgba(79,208,255,0.2); border: 1px solid rgba(79,208,255,0.6); }
+    .gAction:disabled { cursor: default; background: rgba(255,255,255,0.05); border-color: rgba(255,210,170,0.2); opacity: 0.7; }
+    .gStrip { position: absolute; left: 20px; right: 20px; bottom: 18px; display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+    .gStrip button { background: rgba(40,18,10,0.6); border: 1px solid rgba(255,210,170,0.22); border-radius: 6px; padding: 8px 12px; font-size: 11px; letter-spacing: 0.1em; }
+    .gStrip button.on { border-color: rgba(79,208,255,0.75); background: rgba(79,208,255,0.18); }
+    .gStrip button.cur::after { content: ' ●'; color: #6fe08a; }
+    .gStrip { flex-wrap: nowrap; overflow-x: auto; justify-content: flex-start; padding-bottom: 4px; }
+    .gStrip button { flex: none; }
+    @media (max-width: 1000px) {
+      .gCard { left: 16px; right: 16px; width: auto; top: auto; bottom: 66px; padding: 12px 14px; }
+      .gBlurb { display: none; }
+      .gName { font-size: 18px; margin: 2px 0 6px; }
+      .gStat { margin: 4px 0; }
+      .gAction { margin-top: 10px; padding: 10px; }
+      .gNext { right: 20px; } .gArrow { top: 22%; }
+    }
     /* Locked planets stay visible so you can see there is more to come. */
     #planetRow button.locked { opacity: 0.38; cursor: not-allowed; }
     #chapter { display: block; font-size: 13px; line-height: 1.4; letter-spacing: 0.03em; color: #ffe2bd; }
@@ -199,13 +242,16 @@
 <body>
   <div id="loading">ЗАВАНТАЖЕННЯ…</div>
   <div id="leftCol">
-    <div id="startMenu" class="hidden"><div id="startCard" class="panel">
+    <div id="startMenu" class="hidden"><div id="startCard">
       <b>SOLAR ROVER</b>
       <span id="startTag">сонячний ровер · Гермес-3</span>
       <span id="startWhere"></span>
+      <button id="btnResume">ПОВЕРНУТИСЬ У ГРУ</button>
       <button id="btnContinue">ПРОДОВЖИТИ</button>
       <button id="btnNewGame">НОВА ГРА</button>
-      <button id="btnWipe" class="ghost">стерти збереження</button>
+      <button id="btnGarage">ГАРАЖ</button>
+      <button id="btnSettings">НАЛАШТУВАННЯ</button>
+      <span class="startHint">↑ ↓ · Enter · Esc</span>
     </div></div>
     <div id="title" class="panel">
       <span class="hudHead">МІСІЯ</span>
@@ -224,7 +270,7 @@
         <span id="jobClock"></span>
       </div>
     </div>
-    <div id="debugBar" class="panel"><span id="dbgFps">60 FPS</span><span id="dbgMs">· 16.7 мс/кадр</span><span id="version">v2.60 · експериментальна фізика ровера на Rapier (?physics=rapier), стара — ?physics=classic</span></div>
+    <div id="debugBar" class="panel"><span id="dbgFps">60 FPS</span><span id="dbgMs">· 16.7 мс/кадр</span><span id="version">v2.66 · класична фізика знову за замовчуванням (Rapier — у налаштуваннях: R ставить на колеса, не котиться бочкою, колеса крутяться в повітрі); головне меню й гараж</span></div>
   </div>
     <div id="comms" class="panel"><span id="commsFrom"></span><span id="commsText"></span><span id="commsMore"></span></div>
   <div id="compass" class="panel"><canvas id="compassCanvas" width="560" height="70"></canvas></div>
@@ -285,17 +331,11 @@
         <button id="mapToggle">Карта: увімк</button>
         <button id="sandToggle" class="on">Камінці: увімк</button>
       </div>
-      <div class="secTitle">Шасі (перезавантажить сторінку)</div>
-      <div class="btnRow" id="chassisRow">
-        <button id="chassis-truck" class="on">СКАУТ 4×4</button>
-        <button id="chassis-crawler">КРАУЛЕР 6×6</button>
-        <button id="chassis-hauler">ТРАНСПОРТЕР 8×8</button>
-        <button id="chassis-buggy">БАГІ 4×4</button>
-        <button id="chassis-speedster">СПІДСТЕР 4×4</button>
-        <button id="chassis-galatea">ГАЛАТЕЯ 6×6</button>
-        <button id="chassis-glider">ГЛАЙДЕР</button>
+      <div class="secTitle">Фізика (перезавантажить сторінку)</div>
+      <div class="btnRow" id="physicsRow">
+        <button id="physics-classic">Класична</button>
+        <button id="physics-rapier">Rapier · експериментальна</button>
       </div>
-      <div id="chassisInfo"></div>
       <div class="secTitle">Планета (перезавантажить сторінку)</div>
       <div class="btnRow" id="planetRow">
         <button id="planet-mars" class="on">Марс</button>

@@ -179,8 +179,8 @@ const SPECS = {
   // riding high between them, a glass canopy over the nose. Quick and bouncy.
   buggy: {
     id: 'buggy',
-    terrain: { pack: 0.75, perM: 0.0054, idle: 0.7, solar: 0.6, offRoll: 1.15, offDrag: 1.2, wade: 0.8 },
-    blurb: 'легкий і стрибучий, довгий хід підвіски, швидкий по горбах',
+    terrain: { pack: 1.1, perM: 0.0054, idle: 0.7, solar: 0.6, offRoll: 0.85, offDrag: 0.85, wade: 1.0 },
+    blurb: 'легкий і швидкий, довгий хід підвіски ковтає горби; далі за скаута, краще бездоріжжям і на форсажі',
     name: 'БАГІ 4×4',
     tag: 'легкий баггі · Койот',
     driveLabel: ['4×4', '4×2'],
@@ -201,8 +201,8 @@ const SPECS = {
     mu: 1.4,
     vMax: 13,
     vMaxRwd: 24,
-    vMaxBoost: 30,
-    power: 1.1,
+    vMaxBoost: 35,
+    power: 1.25,
     drag: 0.7,
     awdSplit: false, // permanent 4×4
     lockers: true,
@@ -377,60 +377,72 @@ const SPECS = {
 export const SPEC = SPECS[CHASSIS];
 export const CHASSIS_LIST = [SPECS.truck, SPECS.crawler, SPECS.hauler, SPECS.buggy, SPECS.speedster, SPECS.galatea, SPECS.glider];
 
-// One entry per wheel, the single source of truth for both the art and the sim —
-// they are matched by index in main.js, so the order must come from one place.
-// `dz` is the lever arm about the steering centre; 0 means the wheel never steers.
-// A chassis may run bigger, wider tyres on the rear axle (the speedster, like an
-// F1 car): `R` is each wheel's own radius, `wk` its extra width, `my` how much higher
-// its mount sits so the body still rides level, `mu` its grip factor.
-const R0 = 0.855 * SPEC.wheelScale;
-const REAR = SPEC.rear || {};
-export const WHEEL_DEFS = SPEC.axleZ.flatMap((z, axle) =>
-  [1, -1].map((s) => {
-    const rear = axle === SPEC.axleZ.length - 1 && SPEC.rear;
-    const rs = rear ? REAR.scale : 1;
-    const x = s * (SPEC.wheelX + (rear ? REAR.dx : 0));
-    return {
-      name: `${SPEC.axleZ.length === 2 ? 'FR'[axle] : SPEC.axleZ.length === 3 ? 'FMR'[axle] : axle + 1}${s > 0 ? 'L' : 'R'}`,
-      s,
-      axle,
-      z,
-      x,
-      dz: z - SPEC.turnZ,
-      front: axle === 0,
-      R: R0 * rs,
-      my: R0 * rs - R0,
-      rs,
-      wk: rear ? REAR.width : 1,
-      mu: rear ? REAR.mu : 1,
-    };
-  })
-);
+// Everything derived from one chassis description: its wheel table, axle pairs and
+// steering geometry. The game's own chassis is built once below; the garage builds
+// any other one it wants to show.
+export function chassisKit(id) {
+  const SPEC = SPECS[id] || SPECS.truck;
+  // One entry per wheel, the single source of truth for both the art and the sim —
+  // they are matched by index in main.js, so the order must come from one place.
+  // `dz` is the lever arm about the steering centre; 0 means the wheel never steers.
+  // A chassis may run bigger, wider tyres on the rear axle (the speedster, like an
+  // F1 car): `R` is each wheel's own radius, `wk` its extra width, `my` how much higher
+  // its mount sits so the body still rides level, `mu` its grip factor.
+  const R0 = 0.855 * SPEC.wheelScale;
+  const REAR = SPEC.rear || {};
+  const WHEEL_DEFS = SPEC.axleZ.flatMap((z, axle) =>
+    [1, -1].map((s) => {
+      const rear = axle === SPEC.axleZ.length - 1 && SPEC.rear;
+      const rs = rear ? REAR.scale : 1;
+      const x = s * (SPEC.wheelX + (rear ? REAR.dx : 0));
+      return {
+        name: `${SPEC.axleZ.length === 2 ? 'FR'[axle] : SPEC.axleZ.length === 3 ? 'FMR'[axle] : axle + 1}${s > 0 ? 'L' : 'R'}`,
+        s,
+        axle,
+        z,
+        x,
+        dz: z - SPEC.turnZ,
+        front: axle === 0,
+        R: R0 * rs,
+        my: R0 * rs - R0,
+        rs,
+        wk: rear ? REAR.width : 1,
+        mu: rear ? REAR.mu : 1,
+      };
+    })
+  );
 
-// Left/right pairs of one axle, for the anti-roll bars.
-export const AXLE_PAIRS = SPEC.axleZ.map((_, axle) => [axle * 2, axle * 2 + 1]);
+  // Left/right pairs of one axle, for the anti-roll bars.
+  const AXLE_PAIRS = SPEC.axleZ.map((_, axle) => [axle * 2, axle * 2 + 1]);
 
-const REAR_Z = SPEC.axleZ[SPEC.axleZ.length - 1];
-// Rear-axle counter-steer is a low-speed trick. At speed it makes every input twice as
-// sharp, and with a maxed motor the crawler rolled itself over on an ordinary weave.
-// So the steering centre slides back onto the rear axle between these speeds, which
-// straightens the rear wheels — what real all-wheel-steer trucks do. For the scout the
-// centre already sits on the rear axle, so nothing changes there.
-const RS_FULL = 12 / 3.6;
-const RS_OFF = 35 / 3.6;
+  const REAR_Z = SPEC.axleZ[SPEC.axleZ.length - 1];
+  // Rear-axle counter-steer is a low-speed trick. At speed it makes every input twice as
+  // sharp, and with a maxed motor the crawler rolled itself over on an ordinary weave.
+  // So the steering centre slides back onto the rear axle between these speeds, which
+  // straightens the rear wheels — what real all-wheel-steer trucks do. For the scout the
+  // centre already sits on the rear axle, so nothing changes there.
+  const RS_FULL = 12 / 3.6;
+  const RS_OFF = 35 / 3.6;
 
-// Ackermann for an arbitrary layout: every wheel points along the tangent of its own
-// circle about one turn centre, which sits abeam the steering centre at radius R. For
-// the four-wheeler (turn centre on the rear axle) this reduces exactly to the old
-// two-wheel formula; for the crawler it falls out as all-wheel steering for free.
-export function steerAngle(w, delta, speed = 0) {
-  if (Math.abs(delta) < 1e-4) return 0;
-  if (SPEC.skidSteer || (SPEC.frontSteerOnly && !w.front)) return 0;
-  const t = Math.min(1, Math.max(0, (Math.abs(speed) - RS_FULL) / (RS_OFF - RS_FULL)));
-  const turnZ = SPEC.turnZ + (REAR_Z - SPEC.turnZ) * t * t * (3 - 2 * t);
-  const dz = w.z - turnZ;
-  if (Math.abs(dz) < 1e-6) return 0;
-  const s = Math.sign(delta);
-  const R = (SPEC.axleZ[0] - turnZ) / Math.tan(Math.abs(delta));
-  return s * Math.atan2(dz, R - s * w.x);
+  // Ackermann for an arbitrary layout: every wheel points along the tangent of its own
+  // circle about one turn centre, which sits abeam the steering centre at radius R. For
+  // the four-wheeler (turn centre on the rear axle) this reduces exactly to the old
+  // two-wheel formula; for the crawler it falls out as all-wheel steering for free.
+  function steerAngle(w, delta, speed = 0) {
+    if (Math.abs(delta) < 1e-4) return 0;
+    if (SPEC.skidSteer || (SPEC.frontSteerOnly && !w.front)) return 0;
+    const t = Math.min(1, Math.max(0, (Math.abs(speed) - RS_FULL) / (RS_OFF - RS_FULL)));
+    const turnZ = SPEC.turnZ + (REAR_Z - SPEC.turnZ) * t * t * (3 - 2 * t);
+    const dz = w.z - turnZ;
+    if (Math.abs(dz) < 1e-6) return 0;
+    const s = Math.sign(delta);
+    const R = (SPEC.axleZ[0] - turnZ) / Math.tan(Math.abs(delta));
+    return s * Math.atan2(dz, R - s * w.x);
+  }
+  return { CHASSIS: SPEC.id, SPEC, WHEEL_DEFS, AXLE_PAIRS, steerAngle };
 }
+
+const KIT = chassisKit(CHASSIS);
+export const WHEEL_DEFS = KIT.WHEEL_DEFS;
+export const AXLE_PAIRS = KIT.AXLE_PAIRS;
+export const steerAngle = KIT.steerAngle;

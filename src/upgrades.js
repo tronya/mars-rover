@@ -1,6 +1,7 @@
 import { BASES, BASE_FLAT_R } from './terrain.js';
 import { PLANET } from './planet.js';
 import { progress } from './progress.js';
+import { CHASSIS } from './chassis.js';
 
 // Spend at БЕТА's workshop: мотлох found on the map, plus Гермес-3 modules actually
 // delivered (worth more — there are only 4 of those, ever). Two kinds of branch:
@@ -27,6 +28,10 @@ export const BRANCHES = [
   { id: 'autopilot', icon: '🤖', label: 'АВТОПІЛОТ', hint: 'їде сам за маршрутом', short: 'їде маршрутом', kind: 'unlock', costs: [6], vals: [0, 1] },
 ];
 const BY_ID = Object.fromEntries(BRANCHES.map((b) => [b.id, b]));
+
+// Vehicles in the garage, bought with the same мотлох. The scout is what every
+// expedition starts with; the glider is not for sale yet (`null`).
+export const VEHICLE_PRICES = { truck: 0, buggy: 8, crawler: 12, speedster: 16, hauler: 20, galatea: 24, glider: null };
 
 // The same upgrades laid out as a tech tree in three branches. Each node is one
 // level of one upgrade; `req` lists what must be owned first ("id:level"), on top
@@ -83,6 +88,13 @@ function saveState(s) {
 export function createUpgrades(debris, missions) {
   const state = loadState();
   for (const b of BRANCHES) if (!(b.id in state.levels)) state.levels[b.id] = 0;
+  // Owned vehicles: id → what was paid. A save from before the garage keeps the
+  // vehicle it was driving, free, alongside the scout.
+  if (!state.vehicles) {
+    state.vehicles = { truck: 0 };
+    if (VEHICLE_PRICES[CHASSIS] != null) state.vehicles[CHASSIS] = 0;
+    saveState(state);
+  }
 
   // The Moon chapter is a flashback to before any of this existed, so it is always
   // the bare rover whatever the save says — that restriction is the level. Everywhere
@@ -97,6 +109,7 @@ export function createUpgrades(debris, missions) {
   const spent = () => {
     let s = 0;
     for (const b of BRANCHES) for (let i = 0; i < level(b.id); i++) s += b.costs[i];
+    for (const id in state.vehicles) s += state.vehicles[id];
     return s;
   };
   // Scrap found on the map, modules delivered, plus whatever the campaign has handed
@@ -130,6 +143,14 @@ export function createUpgrades(debris, missions) {
     return true;
   };
   const nearWorkshop = (x, z) => Math.hypot(x - BASE.x, z - BASE.z) < WORKSHOP_R;
+  const ownsVehicle = (id) => id in state.vehicles;
+  const canBuyVehicle = (id) => !ownsVehicle(id) && VEHICLE_PRICES[id] != null && currency() >= VEHICLE_PRICES[id];
+  const buyVehicle = (id) => {
+    if (!canBuyVehicle(id)) return false;
+    state.vehicles[id] = VEHICLE_PRICES[id];
+    saveState(state);
+    return true;
+  };
 
-  return { level, mul, unlocked, currency, nextCost, canBuy, buy, nearWorkshop, owns, missing };
+  return { level, mul, unlocked, currency, nextCost, canBuy, buy, nearWorkshop, owns, missing, ownsVehicle, canBuyVehicle, buyVehicle };
 }

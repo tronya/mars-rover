@@ -19,6 +19,7 @@ import { createTracks } from './tracks.js';
 import { createSand } from './sand.js';
 import { createLoose } from './loose.js';
 import { createRapierSim } from './rapier-sim.js';
+import { createGarage } from './garage.js';
 import { createKickup } from './kickup.js';
 import { createGrass } from './grass.js';
 import { createWater } from './water.js';
@@ -343,8 +344,8 @@ const flashback = createFlashback(); // the Гермес-1 wreck; only exists on
 scene.add(flashback.group);
 scene.add(tracks.mesh);
 
-// Physics engine for the drive: the hand-written one (physics.js) or Rapier
-// (rapier-sim.js, experimental). ?physics=rapier / ?physics=classic switches and is
+// Physics engine for the drive: the hand-written one (physics.js) by default, or
+// Rapier (rapier-sim.js) from the settings. ?physics=rapier / ?physics=classic switches and is
 // remembered; the glider always flies on HoverSim.
 const PHYSICS = (() => {
   let p = null;
@@ -353,7 +354,7 @@ const PHYSICS = (() => {
     if (p) localStorage.setItem('rover.physics', p);
     else p = localStorage.getItem('rover.physics');
   } catch (e) { /* storage may be blocked */ }
-  return p === 'rapier' ? 'rapier' : 'classic';
+  return p === 'rapier' ? 'rapier' : 'classic'; // classic by default — it plays better for now
 })();
 const sim = SPEC.flight
   ? new HoverSim()
@@ -739,56 +740,99 @@ for (const p of ['mars', 'moon', 'verdanta']) {
 refreshPlanets();
 refreshChapter();
 
-// Chassis choice sits beside the planet row: it is garage state, not story state,
-// so it survives a new game and never touches the save.
-// Under the buttons, one line on the machine: what it tops out at, how it drives and
-// what it is like. Hovering a button previews that one; leaving shows yours again.
-const chassisInfo = document.getElementById('chassisInfo');
-function showChassisInfo(c) {
-  const kmh = (v) => Math.round(v * 3.6);
-  const cruise = kmh(c.awdSplit ? c.vMaxRwd ?? 100 / 3.6 : c.vMax);
-  const t = c.terrain;
-  const range = ((100 * t.pack) / t.perM / 1000).toFixed(1);
-  const off = t.offDrag > 3 ? 'лише дорога' : t.offRoll > 1.05 ? 'добре' : t.offRoll > 0.9 ? 'дуже добре' : 'будь-де';
-  chassisInfo.innerHTML = `<b>${c.tag}</b> · ${c.driveLabel[0]} · ${cruise} км/год, форсаж ${kmh(c.vMaxBoost)}<br>запас ходу ~${range} км · бездоріжжя: ${off} · брід до ${t.wade} м<br>${c.blurb}`;
-}
-for (const c of CHASSIS_LIST) {
-  const btn = document.getElementById(`chassis-${c.id}`);
-  btn.textContent = c.name;
-  btn.classList.toggle('on', c.id === CHASSIS);
-  btn.addEventListener('click', () => { if (c.id !== CHASSIS) setChassis(c.id); });
-  btn.addEventListener('pointerenter', () => showChassisInfo(c));
-  btn.addEventListener('pointerleave', () => showChassisInfo(SPEC));
-}
-showChassisInfo(SPEC);
-document.getElementById('startTag').textContent = SPEC.tag;
-
-// ---------- start screen ----------
-// The world behind this is already built, so Продовжити is instant; only Нова гра
-// has to reload, because the save is read once on the way in.
-const startMenu = document.getElementById('startMenu');
-let menuOpen = false;
-{
-  const where = document.getElementById('startWhere');
-  const btnContinue = document.getElementById('btnContinue');
-  const btnWipe = document.getElementById('btnWipe');
-  if (!consumeSkipMenu()) {
-    menuOpen = true;
-    startMenu.classList.remove('hidden');
-    const saved = hasSave();
-    btnContinue.style.display = saved ? '' : 'none';
-    btnWipe.style.display = saved ? '' : 'none';
-    where.textContent = saved
-      ? `${PLANET_NAME[PLANET]} · модулі ${missions.deliveredCount()}/4 · мотлох ${upgrades.currency()}`
-      : 'нова експедиція';
-  }
-  const close = () => { menuOpen = false; startMenu.classList.add('hidden'); progress.markStarted(); };
-  btnContinue.addEventListener('click', close);
-  document.getElementById('btnNewGame').addEventListener('click', newGame);
-  btnWipe.addEventListener('click', () => {
-    if (confirm('Стерти збереження? Прогрес, апгрейди й мотлох буде втрачено.')) newGame();
+// Physics engine switch (see PHYSICS above): reloads into the chosen one.
+for (const p of ['classic', 'rapier']) {
+  const btn = document.getElementById(`physics-${p}`);
+  btn.classList.toggle('on', (sim.engine === 'rapier' ? 'rapier' : 'classic') === p);
+  btn.addEventListener('click', () => {
+    try { localStorage.setItem('rover.physics', p); } catch (e) { /* storage may be blocked */ }
+    location.search = '';
+    location.reload();
   });
 }
+document.getElementById('startTag').textContent = SPEC.tag;
+
+// ---------- main menu ----------
+// Full screen over the paused world: Продовжити / Нова гра / Гараж / Налаштування,
+// plus Повернутись у гру when it was opened mid-drive (Esc). The world behind is
+// already built, so Продовжити is instant; Нова гра and picking another vehicle in
+// the garage reload, because the save and the chassis are read once on the way in.
+const startMenu = document.getElementById('startMenu');
+let menuOpen = false;
+const garage = createGarage({
+  renderer,
+  upgrades,
+  current: CHASSIS,
+  onSelect: (id) => {
+    try { sessionStorage.setItem('rover.skipMenu', '1'); } catch (e) { /* storage may be blocked */ }
+    setChassis(id); // reloads straight into the game in the new vehicle
+  },
+});
+const mainMenu = (() => {
+  const where = document.getElementById('startWhere');
+  const btn = {
+    resume: document.getElementById('btnResume'),
+    cont: document.getElementById('btnContinue'),
+    fresh: document.getElementById('btnNewGame'),
+    garage: document.getElementById('btnGarage'),
+    settings: document.getElementById('btnSettings'),
+  };
+  let inGame = false;
+  let focus = 0;
+  const visible = () => Object.values(btn).filter((b) => b.style.display !== 'none');
+  const setFocus = (i) => {
+    const list = visible();
+    focus = (i + list.length) % list.length;
+    list.forEach((b, k) => b.classList.toggle('focus', k === focus));
+  };
+  function open(midGame) {
+    inGame = midGame;
+    menuOpen = true;
+    const saved = hasSave();
+    btn.resume.style.display = midGame ? '' : 'none';
+    btn.cont.style.display = !midGame && saved ? '' : 'none';
+    where.textContent = saved || midGame
+      ? `${PLANET_NAME[PLANET]} · ${SPEC.name} · модулі ${missions.deliveredCount()}/4 · мотлох ${upgrades.currency()}`
+      : 'нова експедиція';
+    startMenu.classList.remove('hidden');
+    document.body.classList.add('inMenu');
+    setFocus(0);
+  }
+  function close() {
+    menuOpen = false;
+    startMenu.classList.add('hidden');
+    document.body.classList.remove('inMenu');
+    menuEl.classList.remove('show');
+    progress.markStarted();
+  }
+  btn.resume.addEventListener('click', close);
+  btn.cont.addEventListener('click', close);
+  btn.fresh.addEventListener('click', () => {
+    if (hasSave() && !confirm('Почати нову гру? Прогрес, апгрейди, відкриті машини й мотлох буде втрачено.')) return;
+    newGame();
+  });
+  btn.garage.addEventListener('click', () => {
+    startMenu.classList.add('hidden');
+    menuEl.classList.remove('show');
+    garage.open(() => open(inGame));
+  });
+  btn.settings.addEventListener('click', () => menuEl.classList.toggle('show'));
+  window.addEventListener('keydown', (e) => {
+    if (!menuOpen || garage.isOpen || startMenu.classList.contains('hidden')) return;
+    if (e.code === 'ArrowDown' || e.code === 'KeyS') setFocus(focus + 1);
+    else if (e.code === 'ArrowUp' || e.code === 'KeyW') setFocus(focus - 1);
+    else if (e.code === 'Enter' || e.code === 'Space') visible()[focus]?.click();
+    else if (e.code === 'Escape') {
+      if (menuEl.classList.contains('show')) menuEl.classList.remove('show');
+      else if (inGame) close();
+    } else return;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+  }, true);
+  for (const b of Object.values(btn)) b.addEventListener('pointerenter', () => setFocus(visible().indexOf(b)));
+  return { open, close };
+})();
+if (!consumeSkipMenu()) mainMenu.open(false);
 
 // ---------- graphics settings ----------
 document.getElementById('viewDist').addEventListener('input', (e) => {
@@ -821,6 +865,7 @@ const keys = new Set();
 const DRIVE_KEYS = new Set(['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space']);
 window.addEventListener('keydown', (e) => {
   if (e.code === 'Escape' && map3dEl.classList.contains('big')) return closeMap();
+  if (e.code === 'Escape' && !photo && !menuOpen) return mainMenu.open(true);
   if (SPEC.flight && e.ctrlKey) e.preventDefault(); // Ctrl is the glider's "down", not a shortcut
   if (e.code === 'KeyF' || (photo && e.code === 'Escape')) return togglePhoto();
   if (photo) {
@@ -1080,6 +1125,7 @@ function stepRighting(dt) {
   sim.angVel.multiplyScalar(1 - k);
   for (const w of sim.wheels) w.wasContact = false;
   sim.refresh();
+  sim.syncFromSim?.(); // Rapier keeps its own body: hand it the righted pose
   return true;
 }
 
@@ -1552,6 +1598,11 @@ const dbgMsEl = document.getElementById('dbgMs');
 
 function frame() {
   const dt = Math.min(clock.getDelta(), 0.05);
+  if (garage.isOpen) {
+    garage.render(dt);
+    requestAnimationFrame(frame);
+    return;
+  }
   if (menuOpen) {
     // Hold everything — clock included — so the sol does not run and the battery
     // does not drain while the player is still deciding.
@@ -2116,6 +2167,6 @@ try {
 } catch (e) { /* storage may be blocked */ }
 
 // debug hook: inspect state and scrub the sol from the console
-window.game = { loose, kickup, applyPreset, dirt, tracks, weather, contactShadow, vehicle, landmarks, jobs, npcs, roadPosts, missions, debris, upgrades, dust, sonar, get sonarScan() { return sonarScan; }, sim, camera, controls, power, renderer, scene, terrain, post, sunShadows, ambient, route, minimap, auto, sand, grass, water, splash, setTime: (t) => { timeOfDay = t % 1; }, get timeOfDay() { return timeOfDay; } };
+window.game = { garage, loose, kickup, applyPreset, dirt, tracks, weather, contactShadow, vehicle, landmarks, jobs, npcs, roadPosts, missions, debris, upgrades, dust, sonar, get sonarScan() { return sonarScan; }, sim, camera, controls, power, renderer, scene, terrain, post, sunShadows, ambient, route, minimap, auto, sand, grass, water, splash, setTime: (t) => { timeOfDay = t % 1; }, get timeOfDay() { return timeOfDay; } };
 document.getElementById('loading').classList.add('hidden');
 frame();
