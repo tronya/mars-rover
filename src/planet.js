@@ -2,5 +2,9 @@
 // the page (see main.js), not a live in-game swap. Shared by physics.js (gravity)
 // and terrain.js (heightfield/colours) so both agree without importing each other.
 export const PLANET = (() => {
-  try { return localStorage.getItem('rover.planet') || 'mars'; } catch (e) { return 'mars'; }
+  // A save may name a planet that no longer exists; fall back to Mars.
+  try {
+    const p = localStorage.getItem('rover.planet');
+    return ['mars', 'moon', 'verdanta'].includes(p) ? p : 'mars';
+  } catch (e) { return 'mars'; }
 })();
