@@ -1288,6 +1288,61 @@ const TEX_METERS = 26; // one texture tile covers this many metres of ground
 // planet — pebbles and hairline cracks on Mars, micro-craters on the Moon, soil clumps
 // on Верданта. It is laid in world space under the rover and faded out by ~70 m, so it
 // adds relief where you actually look (next to the wheels) and never tiles visibly far off.
+// Scanned ground (Poly Haven, CC0) for the close-up detail layer, packed the same way
+// as makeDetailTexture — R height, G albedo around 0.5 — so the shader is unchanged.
+// Only the luminance of the photo is used: the planet's own colours stay in the
+// vertex colours. Swapped in once both images arrive; the procedural one shows
+// until then (and for good, if they never do).
+const SCAN = {
+  mars: 'red_laterite_soil_stones',
+  moon: 'moon_dusted_02',
+  verdanta: 'forest_ground_04',
+}[PLANET];
+const texUrl = (name) => new URL(`../textures/${name}`, import.meta.url).href;
+function loadImage(url) {
+  return new Promise((ok, fail) => {
+    const im = new Image();
+    im.onload = () => ok(im);
+    im.onerror = fail;
+    im.src = url;
+  });
+}
+function pixels(im, N) {
+  const c = document.createElement('canvas');
+  c.width = c.height = N;
+  const x = c.getContext('2d', { willReadFrequently: true });
+  x.drawImage(im, 0, 0, N, N);
+  return x.getImageData(0, 0, N, N).data;
+}
+async function loadScanDetail(anisotropy) {
+  if (!SCAN) return null;
+  const [diff, disp] = await Promise.all([loadImage(texUrl(`${SCAN}_diff.jpg`)), loadImage(texUrl(`${SCAN}_disp.jpg`))]);
+  const N = 1024;
+  const a = pixels(diff, N);
+  const h = pixels(disp, N);
+  let mean = 0;
+  const L = new Float32Array(N * N);
+  for (let i = 0; i < N * N; i++) {
+    L[i] = 0.2126 * a[i * 4] + 0.7152 * a[i * 4 + 1] + 0.0722 * a[i * 4 + 2];
+    mean += L[i];
+  }
+  mean /= N * N;
+  const px = new Uint8Array(N * N * 4);
+  for (let i = 0; i < N * N; i++) {
+    px[i * 4] = h[i * 4];
+    px[i * 4 + 1] = Math.max(0, Math.min(255, Math.round((L[i] / mean) * 0.5 * 255)));
+    px[i * 4 + 3] = 255;
+  }
+  const t = new THREE.DataTexture(px, N, N, THREE.RGBAFormat);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.minFilter = THREE.LinearMipmapLinearFilter;
+  t.magFilter = THREE.LinearFilter;
+  t.generateMipmaps = true;
+  t.anisotropy = anisotropy;
+  t.needsUpdate = true;
+  return t;
+}
+
 function makeDetailTexture(anisotropy) {
   const N = 512;
   const H = new Float32Array(N * N);
@@ -1596,13 +1651,15 @@ export function createTerrain(anisotropy = 8) {
   // Mixing a second sample at an incommensurate scale and offset pushes the combined
   // repeat period far beyond what the eye picks up.
   const detail = makeDetailTexture(anisotropy);
+  const detailU = { value: detail };
+  loadScanDetail(anisotropy).then((t) => { if (t) detailU.value = t; }).catch(() => {});
   const detailAmt = { value: 1 };
   // Rain (weather.js) soaks the ground: 0 dry .. 1 drenched, driven from main.js.
   const wet = { value: 0 };
   // Cloud shadows drifting over the ground (main.js moves `off` with the wind).
   const cloud = { amt: { value: 0 }, off: { value: new THREE.Vector2() } };
   mat.onBeforeCompile = (shader) => {
-    shader.uniforms.tDetail = { value: detail };
+    shader.uniforms.tDetail = detailU;
     shader.uniforms.detailAmt = detailAmt;
     shader.uniforms.wet = wet;
     shader.uniforms.cloudAmt = cloud.amt;
@@ -1689,6 +1746,49 @@ vec4 triDetail( vec3 p, vec3 w, float scale ) {
   };
   const rockGeo = makeRockGeometry();
   const rockMat = new THREE.MeshStandardMaterial({ roughness: 0.95, metalness: 0, flatShading: true, vertexColors: true });
+  // Scanned rock surface (Poly Haven, CC0) laid on triplanar in world space: its
+  // luminance modulates each rock's own colour and doubles as a bump height, so the
+  // facets read as weathered stone instead of flat plastic.
+  const rockTex = { value: null };
+  loadImage(texUrl('rock_boulder_dry_diff.jpg')).then((im) => {
+    const t = new THREE.Texture(im);
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    t.anisotropy = anisotropy;
+    t.needsUpdate = true;
+    rockTex.value = t;
+    rockMat.needsUpdate = true;
+  }).catch(() => {});
+  rockMat.bumpMap = new THREE.Texture(); // switches on the bump path; replaced below
+  rockMat.customProgramCacheKey = () => (rockTex.value ? 'rock-scan' : 'rock');
+  rockMat.onBeforeCompile = (shader) => {
+    if (!rockTex.value) return;
+    shader.uniforms.tRock = rockTex;
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vRockPos;\nvarying vec3 vRockN;')
+      .replace('#include <project_vertex>', `#include <project_vertex>
+        #ifdef USE_INSTANCING
+          vRockPos = ( modelMatrix * instanceMatrix * vec4( transformed, 1.0 ) ).xyz;
+          vRockN = normalize( mat3( modelMatrix * instanceMatrix ) * objectNormal );
+        #else
+          vRockPos = ( modelMatrix * vec4( transformed, 1.0 ) ).xyz;
+          vRockN = normalize( mat3( modelMatrix ) * objectNormal );
+        #endif`);
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', `#include <common>
+varying vec3 vRockPos;
+varying vec3 vRockN;
+uniform sampler2D tRock;
+float rockLum( vec3 p, vec3 w ) {
+  vec3 c = texture2D( tRock, p.xz ).rgb * w.y + texture2D( tRock, p.xy ).rgb * w.z + texture2D( tRock, p.zy ).rgb * w.x;
+  return dot( c, vec3( 0.2126, 0.7152, 0.0722 ) );
+}`)
+      .replace('#include <map_fragment>', `#include <map_fragment>
+        vec3 rw = pow( abs( normalize( vRockN ) ), vec3( 4.0 ) );
+        rw /= ( rw.x + rw.y + rw.z );
+        float rl = rockLum( vRockPos / 1.4, rw );
+        diffuseColor.rgb *= 0.45 + 1.3 * rl;`)
+      .replace('#include <normal_fragment_maps>', THREE.ShaderChunk.normal_fragment_maps.replace('dHdxy_fwd()', 'vec2( dFdx( rl ), dFdy( rl ) ) * 1.6'));
+  };
   const ROCKS_PER_TILE = Math.ceil(TILE / STONE_CELL + 2) ** 2;
 
   // A small, always-shadow-casting set of rocks confined to a disc around the rover
