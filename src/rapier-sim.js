@@ -1,8 +1,7 @@
 import * as THREE from 'three';
-import { VehicleSim, GRAVITY } from './physics.js';
+import { VehicleSim, GRAVITY, motorFor } from './physics.js';
 import { groundHeight, deckHeight, landmarkWall, setDeckRef, waterDepthAt } from './terrain.js';
-import { SPEC, WHEEL_DEFS, AXLE_PAIRS, steerAngle } from './chassis.js';
-import { SUSP } from './vehicle.js';
+import { CHASSIS, chassisKit } from './chassis.js';
 
 // The rover driven by Rapier (a real rigid-body engine, WASM) instead of physics.js's
 // hand-written solver. Experimental and opt-in: Меню → Фізика, or ?physics=rapier.
@@ -16,28 +15,58 @@ import { SUSP } from './vehicle.js';
 // The ground is streamed in as small triangle-mesh tiles around the rover, built one
 // per substep batch so no single frame pays for many height samples. Building walls
 // are not Rapier colliders yet; they push the hull out the same way physics.js does.
+//
+// Any chassis can be driven, not only the game's (the garage drives each vehicle it
+// shows), and on any ground: pass `ground` and the sim stands on that instead of the
+// planet — no tiles, walls or water (see createRapierSim).
 
-const MASS = SPEC.mass;
-const NW = WHEEL_DEFS.length;
-const WEIGHT = MASS * GRAVITY;
-const CORNER = WEIGHT / NW;
-const COM = new THREE.Vector3(0, SPEC.comY, 0);
-const BOX = SPEC.box;
-const S_STATIC = SUSP.Lfree - SUSP.Lstatic;
-const BRAKE_FORCE = 3.2 * CORNER;
-// Suspension rates as physics.js has them, per unit of chassis mass (that is how
-// Rapier scales its suspension force): linear spring holding the static sag, a
-// progressive term past it, bump/rebound damping, and a bump-stop zone that stiffens
-// smoothly over the last BUMP_ZONE of travel instead of hitting the end of the ray.
-const K_LIN = GRAVITY / (NW * S_STATIC);
-const K_PROG = K_LIN / SPEC.progLen;
-// Dampers as a fraction of critical for whatever the spring is doing right now, so a
-// soft long-travel chassis is still settled rather than left pogoing. SPEC.damp
-// softens them for the chassis meant to be lively, but never below a floor.
-const ZETA_BUMP = 0.3 * (0.6 + 0.4 * SPEC.damp.bump);
-const ZETA_REBOUND = 0.5 * (0.6 + 0.4 * SPEC.damp.rebound);
-const C_BUMP = ZETA_BUMP * 2 * Math.sqrt(K_LIN);
-const C_REBOUND = ZETA_REBOUND * 2 * Math.sqrt(K_LIN);
+// Every number the Rapier rover is built from, for one chassis. The game's own
+// chassis is the default; the garage asks for whichever vehicle it is showing.
+function rapierKit(id) {
+  const { SPEC, WHEEL_DEFS, AXLE_PAIRS, steerAngle } = chassisKit(id);
+  const SUSP = SPEC.susp;
+  const MASS = SPEC.mass;
+  const NW = WHEEL_DEFS.length;
+  const WEIGHT = MASS * GRAVITY;
+  const CORNER = WEIGHT / NW;
+  const BOX = SPEC.box;
+  const S_STATIC = SUSP.Lfree - SUSP.Lstatic;
+  // Suspension rates as physics.js has them, per unit of chassis mass (that is how
+  // Rapier scales its suspension force): linear spring holding the static sag, a
+  // progressive term past it, bump/rebound damping, and a bump-stop zone that stiffens
+  // smoothly over the last BUMP_ZONE of travel instead of hitting the end of the ray.
+  const K_LIN = GRAVITY / (NW * S_STATIC);
+  // Dampers as a fraction of critical for whatever the spring is doing right now, so a
+  // soft long-travel chassis is still settled rather than left pogoing. SPEC.damp
+  // softens them for the chassis meant to be lively, but never below a floor.
+  const ZETA_BUMP = 0.3 * (0.6 + 0.4 * SPEC.damp.bump);
+  const ZETA_REBOUND = 0.5 * (0.6 + 0.4 * SPEC.damp.rebound);
+  return {
+    id: SPEC.id,
+    SPEC, WHEEL_DEFS, AXLE_PAIRS, steerAngle, SUSP,
+    MASS, NW, WEIGHT, CORNER, BOX, S_STATIC, K_LIN, ZETA_BUMP, ZETA_REBOUND,
+    R0: 0.855 * SPEC.wheelScale,
+    COM: new THREE.Vector3(0, SPEC.comY, 0),
+    BRAKE_FORCE: 3.2 * CORNER,
+    K_PROG: K_LIN / SPEC.progLen,
+    C_BUMP: ZETA_BUMP * 2 * Math.sqrt(K_LIN),
+    C_REBOUND: ZETA_REBOUND * 2 * Math.sqrt(K_LIN),
+    // Anti-roll bar per axle (physics.js has the same): the more one side of an axle is
+    // compressed than the other, the harder it is held up and the other side pulled down.
+    K_ARB: 26000 * (MASS / 2500),
+    DRAG_V2: 22 * (SPEC.drag ?? 1),
+    DOWNFORCE: SPEC.downforce ?? 0,
+    SKID: !!SPEC.skidSteer,
+    N_FRONT: WHEEL_DEFS.filter((w) => w.front).length,
+    INERTIA: {
+      x: (MASS / 12) * (BOX.h ** 2 + BOX.l ** 2) * 0.6,
+      y: (MASS / 12) * (BOX.w ** 2 + BOX.l ** 2) * 0.62,
+      z: (MASS / 12) * (BOX.w ** 2 + BOX.h ** 2) * 0.6,
+    },
+    motor: motorFor(SPEC),
+  };
+}
+
 const BUMP_ZONE = 0.16;
 // Tipped past ~60° the wheels can't be what holds the rover up: their rays would hit
 // the ground sideways and shove it into a barrel roll. Suspension, drive and grip
@@ -53,23 +82,11 @@ const smooth01 = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b -
 // Rapier's tyres hold sideways harder than physics.js's soft-kneed friction circle;
 // a little less side grip lets a hard turn slide before it rolls the body over.
 const SIDE_GRIP = 1;
-// Anti-roll bar per axle (physics.js has the same): the more one side of an axle is
-// compressed than the other, the harder it is held up and the other side pulled down.
-const K_ARB = 26000 * (MASS / 2500);
 const ROLLING_RES = 0.17;
-const DRAG_V2 = 22 * (SPEC.drag ?? 1);
-const DOWNFORCE = SPEC.downforce ?? 0;
 const MECH_STEER = 0.56;
-const SKID = !!SPEC.skidSteer;
 const SKID_GAIN = 2.0; // tuned so a pivot turn matches physics.js (tests/physics.test.mjs)
 const AWD_UP = 40 / 3.6;
 const AWD_DOWN = 36 / 3.6;
-const N_FRONT = WHEEL_DEFS.filter((w) => w.front).length;
-const INERTIA = {
-  x: (MASS / 12) * (BOX.h ** 2 + BOX.l ** 2) * 0.6,
-  y: (MASS / 12) * (BOX.w ** 2 + BOX.l ** 2) * 0.62,
-  z: (MASS / 12) * (BOX.w ** 2 + BOX.h ** 2) * 0.6,
-};
 
 // Ground tiles: TILE metres square, one height sample per CELL, kept within RING
 // tiles of the rover in every direction.
@@ -78,7 +95,7 @@ const CELL = 1;
 const RING = 3;
 
 // The hull's extent, from the same point grids physics.js collides with the ground.
-function hullBounds() {
+function hullBounds(SPEC, BOX) {
   const lo = new THREE.Vector3(Infinity, Infinity, Infinity);
   const hi = new THREE.Vector3(-Infinity, -Infinity, -Infinity);
   for (const g of SPEC.hullGrids) {
@@ -101,8 +118,12 @@ export async function loadRapier() {
   return RAPIER;
 }
 
-export async function createRapierSim() {
-  return new RapierVehicleSim(await loadRapier());
+// opts.chassis: which vehicle (default: the game's).
+// opts.ground: stand on this instead of the planet — { height(x, z), build(world, R) }:
+//   `build` adds its static colliders to the new world once, `height` is where reset()
+//   puts the wheels down. With no ground the planet's terrain is streamed in as tiles.
+export async function createRapierSim(opts) {
+  return new RapierVehicleSim(await loadRapier(), opts);
 }
 
 const tmpQ = new THREE.Quaternion();
@@ -112,8 +133,16 @@ const up = new THREE.Vector3();
 const wallN = { x: 0, z: 0 };
 
 export class RapierVehicleSim extends VehicleSim {
-  constructor(R) {
-    super(); // runs reset() before the world exists; reset() copes
+  constructor(R, { chassis = CHASSIS, ground = null } = {}) {
+    const k = rapierKit(chassis);
+    super(k.WHEEL_DEFS); // runs reset() before the world exists; reset() copes
+    this.k = k;
+    this.ground = ground;
+    // The chassis' own input handling and motor in place of the game's (physics.js).
+    this.motor = k.motor;
+    this.skidSteer = k.SKID;
+    this.steerLockTime = k.SPEC.steerTime;
+    const { SPEC, WHEEL_DEFS, SUSP, MASS, COM, CORNER, INERTIA, BOX } = k;
     this.R = R;
     this.engine = 'rapier';
     const world = (this.world = new R.World({ x: 0, y: -GRAVITY, z: 0 }));
@@ -132,7 +161,7 @@ export class RapierVehicleSim extends VehicleSim {
     ));
     // Hull: a box around the shell, in body (centre-of-mass) coordinates. Massless —
     // the mass and inertia above are the tuned ones from physics.js.
-    const { lo, hi } = hullBounds();
+    const { lo, hi } = hullBounds(SPEC, BOX);
     const c = lo.clone().add(hi).multiplyScalar(0.5).sub(COM);
     world.createCollider(
       R.ColliderDesc.cuboid((hi.x - lo.x) / 2, (hi.y - lo.y) / 2, (hi.z - lo.z) / 2)
@@ -176,9 +205,9 @@ export class RapierVehicleSim extends VehicleSim {
         SUSP.Lmax,
         w.R
       );
-      ctl.setWheelSuspensionStiffness(i, K_LIN);
-      ctl.setWheelSuspensionCompression(i, C_BUMP);
-      ctl.setWheelSuspensionRelaxation(i, C_REBOUND);
+      ctl.setWheelSuspensionStiffness(i, k.K_LIN);
+      ctl.setWheelSuspensionCompression(i, k.C_BUMP);
+      ctl.setWheelSuspensionRelaxation(i, k.C_REBOUND);
       ctl.setWheelMaxSuspensionTravel(i, SUSP.Lmax - SUSP.Lmin);
       ctl.setWheelMaxSuspensionForce(i, 9 * CORNER);
       ctl.setWheelFrictionSlip(i, SPEC.mu * (w.mu ?? 1));
@@ -186,8 +215,24 @@ export class RapierVehicleSim extends VehicleSim {
     });
 
     this.tiles = new Map(); // "i,j" → collider
-    this.ensureTiles(true);
-    this.syncFromSim();
+    if (ground) {
+      ground.build(world, R);
+      this.reset(0, 0, 0.6);
+    } else {
+      this.ensureTiles(true);
+      this.syncFromSim();
+    }
+  }
+
+  // Free the WASM world (the garage builds one per vehicle shown).
+  dispose() {
+    this.world.free();
+    this.world = null;
+  }
+
+  // Body origin (mount-plane centre) in world space, for placing the visual model.
+  origin(out) {
+    return out.copy(this.k.COM).applyQuaternion(this.quat).multiplyScalar(-1).add(this.pos);
   }
 
   // Put the Rapier body where the inherited state says the rover is.
@@ -200,11 +245,39 @@ export class RapierVehicleSim extends VehicleSim {
   }
 
   reset(x, z, heading) {
-    super.reset(x, z, heading);
+    // On the planet the game's own chassis is placed by physics.js, as it always has
+    // been; any other chassis or ground is placed here the same way.
+    if (!this.k || (this.k.id === CHASSIS && !this.ground)) super.reset(x, z, heading);
+    else this.place(x, z, heading);
     if (this.world) {
-      this.ensureTiles(true);
+      if (!this.ground) this.ensureTiles(true);
       this.syncFromSim();
     }
+  }
+
+  // Upright, wheels just above the highest ground under any of them, at rest.
+  place(x, z, heading) {
+    const { COM, SUSP, R0 } = this.k;
+    this.quat.setFromAxisAngle(up.set(0, 1, 0), heading);
+    const cos = Math.cos(heading), sin = Math.sin(heading);
+    let highest = -Infinity;
+    for (const w of this.wheels) {
+      w.cx = x + w.x * cos + w.z * sin;
+      w.cz = z - w.x * sin + w.z * cos;
+      // Under the whole tyre, not only its centre, so it never starts inside a stone.
+      for (const d of [-0.8, 0, 0.8]) highest = Math.max(highest, this.heightAt(w.cx + sin * d * w.R, w.cz + cos * d * w.R));
+      Object.assign(w, { wasContact: false, contact: false, L: SUSP.Lstatic, Lprev: SUSP.Lstatic, Fs: 0, spinRate: 0, rot: undefined });
+    }
+    this.pos.set(x, highest + R0 + SUSP.Lstatic + 0.05, z).add(tmpV.copy(COM).applyQuaternion(this.quat));
+    this.vel.set(0, 0, 0);
+    this.angVel.set(0, 0, 0);
+    this.cmd.throttle = 0;
+    this.cmd.steer = 0;
+    this.refresh();
+  }
+
+  heightAt(x, z) {
+    return this.ground ? this.ground.height(x, z) : Math.max(groundHeight(x, z), deckHeight(x, z));
   }
 
   // Ground tile (i, j) as a triangle mesh.
@@ -262,12 +335,13 @@ export class RapierVehicleSim extends VehicleSim {
 
   update(dt, input) {
     super.update(dt, input);
-    this.ensureTiles();
+    if (!this.ground) this.ensureTiles();
   }
 
   step(h) {
-    const { R, body, ctl, cmd } = this;
-    setDeckRef(this.pos.y);
+    const { body, ctl, cmd, k } = this;
+    const { SPEC, WHEEL_DEFS, SUSP, NW, WEIGHT, CORNER, MASS, S_STATIC, K_LIN, K_PROG, BRAKE_FORCE, SKID, DOWNFORCE } = k;
+    if (!this.ground) setDeckRef(this.pos.y);
     this.refresh();
     const speed = this.speed;
     // Front hubs disengage at speed (see physics.js).
@@ -275,7 +349,7 @@ export class RapierVehicleSim extends VehicleSim {
       if (this.awd && speed > AWD_UP) this.awd = false;
       else if (!this.awd && speed < AWD_DOWN) this.awd = true;
     }
-    const driven = this.awd ? NW : NW - N_FRONT;
+    const driven = this.awd ? NW : NW - k.N_FRONT;
     const upright = smooth01(UP_MIN, UP_FADE, this.upY);
     // Skid steer: the two sides pull differently. Rapier's tyres hold sideways far too
     // hard for that difference alone to swing the hull, so each wheel gets the mean
@@ -300,7 +374,7 @@ export class RapierVehicleSim extends VehicleSim {
         skidMean += forces[i] / NW;
         if (this.wheels[i].contact) skidTorque += -w.x * forces[i] * SKID_GAIN;
       } else ctl.setWheelEngineForce(i, forces[i]);
-      ctl.setWheelSteering(i, steerAngle(w, cmd.steer, speed));
+      ctl.setWheelSteering(i, k.steerAngle(w, cmd.steer, speed));
       // Rapier's brake is an impulse budget per step; parked means hold firm.
       const brakeF = cmd.parked ? BRAKE_FORCE * 2 : cmd.brake * BRAKE_FORCE + skidBrake;
       ctl.setWheelBrake(i, brakeF * h);
@@ -316,8 +390,8 @@ export class RapierVehicleSim extends VehicleSim {
       // the push is the real spring's, kEff × (Lfree − L), and nothing once extended.
       ctl.setWheelSuspensionStiffness(i, upright * (comp > 0 ? (kEff * comp) / Math.max(0.02, SUSP.Lmax - L) : 0));
       ctl.setWheelMaxSuspensionForce(i, upright * 9 * CORNER);
-      ctl.setWheelSuspensionCompression(i, crit * ZETA_BUMP * (1 + 1.5 * near));
-      ctl.setWheelSuspensionRelaxation(i, crit * ZETA_REBOUND);
+      ctl.setWheelSuspensionCompression(i, crit * k.ZETA_BUMP * (1 + 1.5 * near));
+      ctl.setWheelSuspensionRelaxation(i, crit * k.ZETA_REBOUND);
       // Turning a skid-steer means scrubbing every tyre sideways: the tread has to let
       // go sideways for the hull to swing at all (physics.js does the same, milder —
       // Rapier's side friction holds much harder).
@@ -336,7 +410,7 @@ export class RapierVehicleSim extends VehicleSim {
     const vh = Math.hypot(v.x, v.z);
     const contacts = this.wheels.filter((w) => w.contact).length;
     if (vh > 0.01 && contacts) {
-      const resist = (ROLLING_RES * this.rollMul * WEIGHT * contacts) / NW + DRAG_V2 * this.dragMul * vh * vh;
+      const resist = (ROLLING_RES * this.rollMul * WEIGHT * contacts) / NW + k.DRAG_V2 * this.dragMul * vh * vh;
       const f = Math.min(resist, (MASS * vh) / h) / vh;
       body.addForce({ x: -v.x * f, y: 0, z: -v.z * f }, true);
     }
@@ -354,20 +428,20 @@ export class RapierVehicleSim extends VehicleSim {
     const w = body.angvel();
     const spin = Math.hypot(w.x, w.y, w.z);
     if (spin > 1e-4) {
-      const k = (1 - Math.min(0.5, (W_DRAG_LIN + W_DRAG_SQ * spin) * h)) * Math.min(1, W_LIMIT / spin);
-      body.setAngvel({ x: w.x * k, y: w.y * k, z: w.z * k }, true);
+      const f = (1 - Math.min(0.5, (W_DRAG_LIN + W_DRAG_SQ * spin) * h)) * Math.min(1, W_LIMIT / spin);
+      body.setAngvel({ x: w.x * f, y: w.y * f, z: w.z * f }, true);
     }
-    this.pushOutOfWalls();
+    if (!this.ground) this.pushOutOfWalls();
     this.readBack();
   }
 
   antiRoll() {
     const { body, ctl } = this;
     up.set(0, 1, 0).applyQuaternion(this.quat);
-    for (const [a, b] of AXLE_PAIRS) {
+    for (const [a, b] of this.k.AXLE_PAIRS) {
       const wa = this.wheels[a], wb = this.wheels[b];
       if (!wa.contact || !wb.contact) continue;
-      const f = K_ARB * (wb.L - wa.L) * this.suspMul; // + when a is the more compressed
+      const f = this.k.K_ARB * (wb.L - wa.L) * this.suspMul; // + when a is the more compressed
       for (const [i, sign] of [[a, 1], [b, -1]]) {
         const hp = ctl.wheelHardPoint(i);
         if (!hp) continue;
@@ -380,6 +454,7 @@ export class RapierVehicleSim extends VehicleSim {
   // cancel the velocity into it.
   pushOutOfWalls() {
     const { body } = this;
+    const { BOX } = this.k;
     const t = body.translation();
     const r = body.rotation();
     tmpQ.set(r.x, r.y, r.z, r.w);
@@ -401,6 +476,7 @@ export class RapierVehicleSim extends VehicleSim {
   // Copy the engine's state into the fields the rest of the game reads.
   readBack() {
     const { body, ctl } = this;
+    const { SUSP, SPEC, NW } = this.k;
     const t = body.translation();
     const r = body.rotation();
     const v = body.linvel();
@@ -410,7 +486,7 @@ export class RapierVehicleSim extends VehicleSim {
     this.vel.set(v.x, v.y, v.z);
     this.angVel.set(w.x, w.y, w.z);
     // Water slows everything down a lot (physics.js does it per wheel; here, the body).
-    const wd = waterDepthAt(t.x, t.z);
+    const wd = this.ground ? 0 : waterDepthAt(t.x, t.z);
     if (wd > 0.2) body.setLinvel({ x: v.x * 0.995, y: v.y, z: v.z * 0.995 }, true);
     fwd.set(0, 0, 1).applyQuaternion(this.quat);
     for (let i = 0; i < NW; i++) {
@@ -438,7 +514,7 @@ export class RapierVehicleSim extends VehicleSim {
         // In the air nothing holds the tyre to road speed: under throttle it spins
         // up freely, off throttle it freewheels, on the brake it stops (physics.js).
         const thr = this.cmd.throttle;
-        const freeMax = (SPEC.vMaxBoost * 1.5) / WHEEL_DEFS[i].R;
+        const freeMax = (SPEC.vMaxBoost * 1.5) / wh.R;
         if (this.cmd.brake > 0) wh.spinRate *= 0.9;
         else if (thr !== 0) wh.spinRate = Math.min(freeMax, Math.max(-freeMax, wh.spinRate + Math.sign(thr) * freeMax * 5 * this.lastH));
         else wh.spinRate *= 0.9995;

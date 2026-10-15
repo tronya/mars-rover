@@ -75,11 +75,20 @@ const UP_MIN = 0.5;
 const UP_FADE = 0.8;
 // Stock motor. The workshop's ДВИГУН upgrade scales this via sim.powerMul — 180,
 // 360 or 540 kW (see upgrades.js) — instead of this file hard-coding a fixed value.
-const F_DRIVE = 26000 * (SPEC.power ?? 1); // total, all wheels, at the stock 180 kW
+// A function of the chassis, so rapier-sim.js can give the garage's vehicle its own.
+export function motorFor(spec) {
+  return {
+    fDrive: 26000 * (spec.power ?? 1), // total, all wheels, at the stock 180 kW
+    power: 180000 * (spec.power ?? 1), // the light chassis get a hotter motor
+    vMax: spec.vMax, // ~43 km/h cruising, AWD mode only
+    vMaxBoost: spec.vMaxBoost, // Shift only, and it drinks the battery — stays above vMaxRwd
+    vMaxRwd: spec.vMaxRwd ?? 100 / 3.6, // ~28 m/s — the whole point of dropping the front axle
+    lowGear: spec.lowGear,
+  };
+}
+const MOTOR = motorFor(SPEC);
 const N_FRONT = WHEEL_DEFS.filter((w) => w.front).length;
-const POWER = 180000 * (SPEC.power ?? 1); // the light chassis get a hotter motor
-const V_MAX = SPEC.vMax; // ~43 km/h cruising, AWD mode only
-const V_MAX_BOOST = SPEC.vMaxBoost; // Shift only, and it drinks the battery — stays above V_MAX_RWD
+const V_MAX_BOOST = MOTOR.vMaxBoost;
 const V_MAX_REVERSE = 6;
 // Below AWD_UP the front axle stays engaged for traction over rough ground; past it
 // the front hubs disengage and only the rear wheels drive — less drivetrain to spin
@@ -88,7 +97,6 @@ const V_MAX_REVERSE = 6;
 // at the switch point doesn't clatter the front axle in and out every second.
 const AWD_UP = 40 / 3.6;
 const AWD_DOWN = 36 / 3.6;
-const V_MAX_RWD = SPEC.vMaxRwd ?? 100 / 3.6; // ~28 m/s — the whole point of dropping the front axle
 // Steering behaves like a wheel, not a spring: the angle stays where it is left.
 const MECH_STEER = 0.56; // mechanical lock at the knuckle
 const SKID = !!SPEC.skidSteer; // tank-style: steer by driving the two sides apart
@@ -214,7 +222,9 @@ function invInertia(v, out, q) {
 const qInv = new THREE.Quaternion(), dq = new THREE.Quaternion(), qInvScratch = new THREE.Quaternion();
 
 export class VehicleSim {
-  constructor() {
+  // `wheelDefs` is for rapier-sim.js driving another chassis than the game's (the
+  // garage); physics.js's own solver only ever runs the game's.
+  constructor(wheelDefs = WHEEL_DEFS) {
     this.pos = new THREE.Vector3();
     this.quat = new THREE.Quaternion();
     this.vel = new THREE.Vector3();
@@ -230,7 +240,12 @@ export class VehicleSim {
     this.gripMul = 1; // set by the workshop wheels upgrade — tyre grip on top of MU
     this.rollMul = 1; // set per frame by main.js: off-road rolling resistance for this chassis
     this.dragMul = 1; // and churn through loose regolith
-    this.wheels = WHEEL_DEFS.map((w) => ({
+    // What the input handling and motor below need of the chassis; rapier-sim.js
+    // replaces them when it drives another one.
+    this.motor = MOTOR;
+    this.skidSteer = SKID;
+    this.steerLockTime = STEER_LOCK_TIME;
+    this.wheels = wheelDefs.map((w) => ({
       ...w, L: SUSP.Lstatic, Lprev: SUSP.Lstatic, wasContact: false, contact: false, Fs: 0, comp: 0,
       cx: 0, cz: 0, g: 0, gPrev: 0, blocked: 0, blockSide: 0, vx: 0, vy: 0, spinRate: 0, dir: V3(), n: V3(), rel: V3(),
     }));
@@ -308,14 +323,14 @@ export class VehicleSim {
     const maxSteer = MECH_STEER;
     this.maxSteer = maxSteer;
     // A skid-steered rover turns on the spot: holding the wheel is not parking.
-    if (SKID && Math.abs(input.steer || input.steerTo || 0) > 0.02) c.parked = false;
+    if (this.skidSteer && Math.abs(input.steer || input.steerTo || 0) > 0.02) c.parked = false;
     if (input.steerTo !== undefined) {
       c.steer = damp(c.steer, clamp(input.steerTo, -1, 1) * maxSteer, 5, dt);
     } else {
       const inp = clamp(input.steer, -1, 1);
       // The wheel turns at this rate whichever way it moves, whether that is a key
       // winding it toward lock or the wheel unwinding back to centre once released.
-      const step = (maxSteer * dt) / STEER_LOCK_TIME;
+      const step = (maxSteer * dt) / this.steerLockTime;
       if (inp !== 0) c.steer += inp * step;
       else if (c.steer > step) c.steer -= step;
       else if (c.steer < -step) c.steer += step;
@@ -334,9 +349,10 @@ export class VehicleSim {
 
   driveForce(thr, speed) {
     const boost = this.cmd.boost;
-    let vmax = thr > 0 ? (boost ? V_MAX_BOOST : this.awd ? V_MAX : V_MAX_RWD) : V_MAX_REVERSE;
-    const fmax = (boost ? F_DRIVE * 1.4 : F_DRIVE) * SPEC.lowGear * this.powerMul;
-    let f = Math.min(fmax, ((boost ? POWER * 1.4 : POWER) * this.powerMul) / Math.max(Math.abs(speed), 2));
+    const m = this.motor;
+    let vmax = thr > 0 ? (boost ? m.vMaxBoost : this.awd ? m.vMax : m.vMaxRwd) : V_MAX_REVERSE;
+    const fmax = (boost ? m.fDrive * 1.4 : m.fDrive) * m.lowGear * this.powerMul;
+    let f = Math.min(fmax, ((boost ? m.power * 1.4 : m.power) * this.powerMul) / Math.max(Math.abs(speed), 2));
     if (thr * speed >= 0) f *= 1 - smoothstep(0.8 * vmax, vmax, Math.abs(speed));
     return f * thr;
   }

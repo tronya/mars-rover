@@ -2,10 +2,12 @@ import * as THREE from 'three';
 import { CHASSIS_LIST, chassisKit } from './chassis.js';
 import { vehicleKit } from './vehicle.js';
 import { VEHICLE_PRICES } from './upgrades.js';
+import { loadRapier, RapierVehicleSim } from './rapier-sim.js';
+import { GARAGE_SPEED, LOOP, garageHeight, garageStones, garageGround, garageInput, wrapGarage, stoneGeometry } from './garage-ground.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 
-// The garage: one vehicle at a time on a round patch of Martian ground, standing
-// three-quarters on under a low warm sun, turning slowly (drag to turn it yourself).
+// The garage: one vehicle at a time, driving itself slowly over a round patch of
+// Martian ground, seen three-quarters on under a low warm sun (drag to turn the view).
 // ← → or the strip along the bottom pick another; the button below says what can be
 // done with it — it's the one in the game, pick it, buy it with мотлох, or it isn't
 // for sale yet. Picking one reloads the game into it, like the chassis switch always
@@ -77,21 +79,20 @@ export function createGarage({ renderer, upgrades, current, onSelect }) {
   scene.add(rim);
 
   // ---------- the drive ----------
-  // The vehicle never moves: the ground runs under it, like a treadmill. A patch of
-  // rolling ground with stones, scrolled toward the camera's far side at walking
-  // pace; wheels turn to match, each corner's suspension follows the bumps under it,
-  // and the rear tyres kick up dust. `world` turns as one when you drag.
-  const SPEED = 2.6; // m/s
+  // The vehicle drives itself down a strip of rolling ground with stones on it
+  // (garage-ground.js), under Rapier (rapier-sim.js): its own suspension takes the
+  // bumps and the stones, the wheels turn with the ground, the rear tyres kick up
+  // dust. Everything drawn sits in `track`, which is moved so the vehicle stays in
+  // the middle of the view — the camera follows it without moving, and `world` turns
+  // as one when you drag. Rapier is loaded the first time the garage opens (it is a
+  // ~1.6 MB module); until then the vehicle stands still on the ground. The glider
+  // has no wheels: it hovers along over the same ground, drawn as before.
   const SIZE = 36;
+  const CELL = SIZE / 96;
   const world = new THREE.Group();
   scene.add(world);
-  // Rolling ground with a few sharper bumps; Z runs along the route, so the shapes
-  // stay put on the ground while it scrolls.
-  const H = (x, Z) =>
-    0.34 * Math.sin(Z * 0.21 + 1.3 * Math.sin(x * 0.13)) +
-    0.2 * Math.sin(Z * 0.47 + x * 0.31) +
-    0.11 * Math.sin(x * 0.6 - Z * 0.33) +
-    0.05 * Math.sin(Z * 1.7 + x * 1.1);
+  const track = new THREE.Group();
+  world.add(track);
   const groundGeo = new THREE.PlaneGeometry(SIZE, SIZE, 96, 96).rotateX(-Math.PI / 2);
   const gp = groundGeo.attributes.position;
   const baseXZ = Float32Array.from({ length: gp.count * 2 }, (_, i) => (i % 2 ? gp.getZ(i >> 1) : gp.getX(i >> 1)));
@@ -101,77 +102,44 @@ export function createGarage({ renderer, upgrades, current, onSelect }) {
     new THREE.MeshStandardMaterial({ map: groundTex, color: 0xd08a62, roughness: 1, alphaMap: edgeTexture(), transparent: true })
   );
   ground.receiveShadow = true;
-  world.add(ground);
-  let travel = 0;
-  function moveGround() {
-    for (let i = 0; i < gp.count; i++) gp.setY(i, H(baseXZ[i * 2], baseXZ[i * 2 + 1] + travel));
+  track.add(ground);
+  // The drawn patch is centred on the vehicle, moved a whole cell at a time so its
+  // vertices stay put on the ground instead of swimming over it; reshaped only then.
+  let gx = NaN, gz = NaN;
+  function moveGround(x, z) {
+    const sx = Math.round(x / CELL) * CELL, sz = Math.round(z / CELL) * CELL;
+    if (sx === gx && sz === gz) return false;
+    gx = sx;
+    gz = sz;
+    for (let i = 0; i < gp.count; i++) gp.setY(i, garageHeight(baseXZ[i * 2] + sx, baseXZ[i * 2 + 1] + sz));
     gp.needsUpdate = true;
     groundGeo.computeVertexNormals();
-    // The photo slides with the ground (5 repeats across SIZE metres).
-    groundTex.offset.y = (-travel / SIZE) * 5;
+    ground.position.set(sx, 0, sz);
+    // The photo stays on the ground as the patch moves (5 repeats across SIZE metres).
+    groundTex.offset.set((sx / SIZE) * 5, (-sz / SIZE) * 5);
+    return true;
   }
 
-  // Stones beside the track, recycled from behind to ahead.
-  const stoneGeo = (() => {
-    const g = new THREE.DodecahedronGeometry(1, 0);
-    const p = g.attributes.position;
-    for (let i = 0; i < p.count; i++) {
-      const h = Math.sin(p.getX(i) * 12.9 + p.getY(i) * 78.2 + p.getZ(i) * 37.7) * 43758.5;
-      const k = 0.7 + 0.45 * (h - Math.floor(h));
-      p.setXYZ(i, p.getX(i) * k, p.getY(i) * k * 0.7, p.getZ(i) * k);
-    }
-    g.computeVertexNormals();
-    return g;
-  })();
-  const STONES = 46;
-  const stones = new THREE.InstancedMesh(stoneGeo, new THREE.MeshStandardMaterial({ color: 0x8a5a40, roughness: 0.95, flatShading: true }), STONES);
+  // The stones the physics collides with, each drawn at its copy nearest the vehicle
+  // (the strip repeats every LOOP) and hidden past the edge of the patch.
+  const stoneAt = garageStones();
+  const groundSrc = garageGround(stoneAt);
+  const stones = new THREE.InstancedMesh(stoneGeometry(), new THREE.MeshStandardMaterial({ color: 0x8a5a40, roughness: 0.95, flatShading: true }), stoneAt.length);
   stones.castShadow = true;
   stones.receiveShadow = true;
-  world.add(stones);
-  const stoneAt = [];
-  // A third of them lie in the wheel tracks — small enough to roll over — the rest
-  // beside the route, any size.
-  const placeStone = (st, ahead) => {
-    const side = Math.random() < 0.5 ? -1 : 1;
-    const inTrack = Math.random() < 0.35;
-    st.x = side * (inTrack ? 0.8 + Math.random() * 3.2 : 4.5 + Math.random() * 12);
-    st.Z = travel + (ahead ? SIZE / 2 + Math.random() * 6 : (Math.random() - 0.5) * SIZE);
-    st.s = inTrack ? 0.14 + Math.random() * 0.22 : 0.12 + Math.pow(Math.random(), 2.4) * 0.7;
-    st.r = Math.random() * 6;
-  };
-  // What a tyre at (x, Z) rests on: the ground, or the top of a stone under it. The
-  // stone is treated as a low dome (it is squashed to 0.7 of its width) and the tyre
-  // meets its flank before its peak, so the wheel climbs it rather than jumping.
-  const groundUnder = (x, Z, halfW, R) => {
-    let g = H(x, Z);
-    for (const st of stoneAt) {
-      const dx = Math.max(0, Math.abs(st.x - x) - halfW);
-      // A round tyre touches a stone ahead of it before rolling on top: its reach is
-      // the chord of the tyre at the stone's height.
-      const top = st.s * 0.95;
-      const reach = Math.sqrt(Math.max(0, 2 * R * top - top * top)) * 0.8;
-      const dz = Math.max(0, Math.abs(st.Z - Z) - reach);
-      const r = st.s * 1.1;
-      const d2 = dx * dx + dz * dz;
-      if (d2 >= r * r) continue;
-      g = Math.max(g, H(st.x, st.Z) + st.s * 0.25 + st.s * 0.7 * Math.sqrt(1 - d2 / (r * r)));
-    }
-    return g;
-  };
-  for (let i = 0; i < STONES; i++) { const st = {}; placeStone(st, false); stoneAt.push(st); }
+  track.add(stones);
   const sm = new THREE.Matrix4(), sq = new THREE.Quaternion(), sv = new THREE.Vector3(), ss = new THREE.Vector3(), se = new THREE.Euler();
-  function moveStones() {
+  function moveStones(z0) {
     stoneAt.forEach((st, i) => {
-      if (st.Z - travel < -SIZE / 2 - 2) placeStone(st, true);
-      const z = st.Z - travel;
-      sv.set(st.x, H(st.x, st.Z) + st.s * 0.25, z);
+      const z = st.z + Math.round((z0 - st.z) / LOOP) * LOOP;
+      sv.set(st.x, st.y, z);
       sq.setFromEuler(se.set(0, st.r, 0));
-      stones.setMatrixAt(i, sm.compose(sv, sq, ss.setScalar(st.s)));
+      stones.setMatrixAt(i, sm.compose(sv, sq, ss.setScalar(Math.abs(z - z0) < SIZE / 2 + 1 ? st.s : 0)));
     });
     stones.instanceMatrix.needsUpdate = true;
   }
 
-  // Dust: soft sprites thrown up behind the rear wheels, left behind by the ground.
+  // Dust: soft sprites thrown up behind the rear wheels, left behind on the ground.
   const dustTex = (() => {
     const c = document.createElement('canvas');
     c.width = c.height = 64;
@@ -187,17 +155,19 @@ export function createGarage({ renderer, upgrades, current, onSelect }) {
   const dust = Array.from({ length: DUST }, () => {
     const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: dustTex, color: 0xc89070, transparent: true, depthWrite: false, opacity: 0 }));
     sp.visible = false;
-    world.add(sp);
+    track.add(sp);
     return { sp, life: 0, max: 1, vx: 0, vy: 0, vz: 0 };
   });
   let dustNext = 0;
-  function puff(x, y, z, strong) {
+  // (vx, vz): the vehicle's velocity; a puff is dragged a little way after it.
+  function puff(x, y, z, vx, vz) {
     const d = dust[dustNext];
     dustNext = (dustNext + 1) % DUST;
     d.sp.position.set(x + (Math.random() - 0.5) * 0.5, y + 0.2, z);
-    d.vx = (Math.random() - 0.5) * 0.6;
+    const k = 0.2 + Math.random() * 0.25;
+    d.vx = vx * k + (Math.random() - 0.5) * 0.6;
     d.vy = 0.25 + Math.random() * 0.4;
-    d.vz = -SPEED * (0.55 + Math.random() * 0.25) - (strong ? 0.6 : 0);
+    d.vz = vz * k;
     d.life = 0;
     d.max = 1.8 + Math.random() * 1.4;
     d.sp.visible = true;
@@ -217,10 +187,29 @@ export function createGarage({ renderer, upgrades, current, onSelect }) {
     }
   }
 
+  // Rapier, once loaded, and the sim driving the vehicle on show (null for the
+  // glider, or while Rapier is still loading).
+  let RAPIER = null;
+  let rapierLoad = null;
+  let sim = null;
+  function needRapier() {
+    rapierLoad ??= loadRapier()
+      .then((R) => {
+        RAPIER = R;
+        if (api.isOpen && showing) startDrive();
+      })
+      .catch((e) => console.warn('Garage: Rapier did not load; the vehicle stands still', e));
+  }
+  // What the view centres on: the vehicle, and the ground under it (eased, so the
+  // camera does not bob with every bump the suspension is there to show).
+  const focus = new THREE.Vector3();
+  let glideZ = 0;
+
   const built = {};
   let showing = null;
   function show(id) {
-    if (showing) world.remove(built[showing].root);
+    const same = id === showing;
+    if (showing) track.remove(built[showing].root);
     if (!built[id]) {
       const kit = vehicleKit(id);
       const v = kit.buildVehicle();
@@ -233,65 +222,83 @@ export function createGarage({ renderer, upgrades, current, onSelect }) {
         kit,
         defs: chassisKit(id).WHEEL_DEFS,
         flight: !!SPECS[id].flight,
-        y: null, pitch: 0, roll: 0,
-        L: chassisKit(id).WHEEL_DEFS.map(() => kit.SUSP.Lstatic),
       };
     }
-    world.add(built[id].root);
+    track.add(built[id].root);
     showing = id;
     fitCamera();
+    if (!same || (!sim && !built[id].flight)) startDrive();
   }
 
-  // Sit the vehicle on the ground under its wheels: body height, pitch and roll from
-  // a plane through the four (six, eight) contact points, then each corner's
-  // suspension takes up what the plane does not.
+  // A fresh start at the beginning of the strip: a new Rapier world for this vehicle
+  // (the last one's is freed), or — until Rapier is in — standing on its wheels.
+  function startDrive() {
+    if (sim) { sim.dispose(); sim = null; }
+    const b = built[showing];
+    for (const d of dust) d.sp.visible = false;
+    glideZ = 0;
+    focus.set(0, garageHeight(0, 0), 0);
+    if (!b.flight && RAPIER) {
+      sim = new RapierVehicleSim(RAPIER, { chassis: showing, ground: groundSrc });
+      sim.reset(0, 0, 0);
+    } else if (!b.flight) {
+      let g = -Infinity;
+      for (const d of b.defs) g = Math.max(g, groundSrc.height(d.x, d.z));
+      b.root.position.set(0, g + b.kit.WHEEL_R + b.kit.SUSP.Lstatic, 0);
+      b.root.rotation.set(0, 0, 0);
+      b.defs.forEach((_, i) => b.v.setSuspension(i, b.kit.SUSP.Lstatic));
+    }
+  }
+
   let dustAcc = 0;
   function drive(dt) {
     const b = built[showing];
     const { root, v, kit, defs } = b;
-    const k = 1 - Math.exp(-dt * 8);
     if (b.flight) {
+      glideZ += GARAGE_SPEED * dt;
+      if (glideZ > LOOP) {
+        glideZ -= LOOP;
+        focus.z -= LOOP;
+        for (const d of dust) d.sp.position.z -= LOOP;
+      }
       let g = 0;
-      for (const [x, z] of [[-1.5, -2], [1.5, -2], [-1.5, 2], [1.5, 2]]) g += H(x, z + travel) / 4;
+      for (const [x, z] of [[-1.5, -2], [1.5, -2], [-1.5, 2], [1.5, 2]]) g += garageHeight(x, glideZ + z) / 4;
       const y = g + 2.1 + Math.sin(performance.now() / 700) * 0.08;
-      b.y = b.y === null ? y : b.y + (y - b.y) * k * 0.5;
-      root.position.y = b.y;
-      root.rotation.x = Math.sin(performance.now() / 1300) * 0.03 - 0.04;
+      root.position.set(0, root.position.y + (y - root.position.y) * (1 - Math.exp(-dt * 4)), glideZ);
+      root.rotation.set(Math.sin(performance.now() / 1300) * 0.03 - 0.04, 0, 0);
+      focus.x = 0;
+      focus.z = glideZ;
+      focus.y += (g - focus.y) * (1 - Math.exp(-dt * 2));
       dustAcc += dt * 18;
-      while (dustAcc > 1) { dustAcc--; puff((Math.random() - 0.5) * 3, g, (Math.random() - 0.5) * 3, true); }
+      while (dustAcc > 1) { dustAcc--; puff((Math.random() - 0.5) * 3, g, glideZ + (Math.random() - 0.5) * 3, 0, GARAGE_SPEED); }
       return;
     }
-    let n = 0, sz = 0, sx = 0, szz = 0, sxx = 0, sg = 0, szg = 0, sxg = 0;
-    const gs = defs.map((d) => {
-      const g = groundUnder(d.x, d.z + travel, 0.35 * d.R * (d.wk || 1), d.R) + d.R;
-      n++; sx += d.x; sz += d.z; sxx += d.x * d.x; szz += d.z * d.z; sg += g; szg += d.z * g; sxg += d.x * g;
-      return g;
+    if (!sim) return; // standing until Rapier is in
+    sim.update(dt, garageInput(sim));
+    const shift = wrapGarage(sim);
+    if (shift) {
+      focus.z += shift;
+      for (const d of dust) d.sp.position.z += shift;
+    }
+    sim.origin(root.position);
+    root.quaternion.copy(sim.quat);
+    v.setSteer(sim.cmd.steer, sim.speed);
+    sim.wheels.forEach((w, i) => {
+      v.setSuspension(i, w.contact ? Math.min(kit.SUSP.Lmax, Math.max(kit.SUSP.Lmin, w.L)) : kit.SUSP.Lmax);
+      v.wheels[i].spin.rotation.x += w.spinRate * dt;
     });
-    // Least squares (independent in x and z: the wheel layout is symmetric).
-    const mx = sx / n, mz = sz / n, mg = sg / n;
-    const slopeZ = (szg / n - mz * mg) / Math.max(1e-6, szz / n - mz * mz);
-    const slopeX = (sxg / n - mx * mg) / Math.max(1e-6, sxx / n - mx * mx);
-    const y = mg + kit.SUSP.Lstatic;
-    if (b.y === null) b.y = y;
-    b.y += (y - b.y) * k;
-    b.pitch += (-Math.atan(slopeZ) - b.pitch) * k;
-    b.roll += (Math.atan(slopeX) - b.roll) * k;
-    root.position.y = b.y;
-    root.rotation.set(b.pitch, 0, b.roll);
-    defs.forEach((d, i) => {
-      const plane = b.y - Math.tan(b.pitch) * d.z + Math.tan(b.roll) * d.x + d.my;
-      const L = Math.min(kit.SUSP.Lmax, Math.max(kit.SUSP.Lmin, plane - gs[i]));
-      b.L[i] += (L - b.L[i]) * Math.min(1, k * 2);
-      v.setSuspension(i, b.L[i]);
-      v.wheels[i].spin.rotation.x += (SPEED / d.R) * dt;
-    });
-    // Dust from the rear axle.
-    dustAcc += dt * 22;
+    focus.x = sim.pos.x;
+    focus.z = sim.pos.z;
+    focus.y += (garageHeight(sim.pos.x, sim.pos.z) - focus.y) * (1 - Math.exp(-dt * 2));
+    // Dust from the rear axle, as much as the wheels are rolling.
+    dustAcc += dt * 22 * Math.min(1, Math.abs(sim.speed) / GARAGE_SPEED);
+    const rearAxle = defs[defs.length - 1].axle;
     while (dustAcc > 1) {
       dustAcc--;
-      const rear = defs.filter((d) => d.axle === defs[defs.length - 1].axle);
-      const d = rear[Math.floor(Math.random() * rear.length)];
-      puff(d.x, gs[defs.indexOf(d)] - d.R, d.z - d.R * 0.6, false);
+      const rear = sim.wheels.filter((w) => w.axle === rearAxle && w.contact);
+      if (!rear.length) break;
+      const w = rear[Math.floor(Math.random() * rear.length)];
+      puff(w.cx, garageHeight(w.cx, w.cz), w.cz, sim.vel.x, sim.vel.z);
     }
   }
 
@@ -419,16 +426,19 @@ export function createGarage({ renderer, upgrades, current, onSelect }) {
   let onClose = null;
   const api = {
     isOpen: false,
-    get debug() { return { dust, world, built, showing }; },
+    get debug() { return { dust, world, built, showing, sim }; },
     open(after) {
       onClose = after || null;
       api.isOpen = true;
+      needRapier();
       el.classList.remove('hidden');
       index = Math.max(0, ORDER.indexOf(current));
       refresh();
     },
     close() {
       api.isOpen = false;
+      // Free the Rapier world while the garage is shut; opening it starts a new drive.
+      if (sim) { sim.dispose(); sim = null; }
       el.classList.add('hidden');
       if (onClose) onClose();
     },
@@ -439,10 +449,9 @@ export function createGarage({ renderer, upgrades, current, onSelect }) {
         if (idle > 3) spin += (REST - spin) * (1 - Math.exp(-dt * 0.8));
       }
       world.rotation.y = spin;
-      travel += SPEED * dt;
-      moveGround();
-      moveStones();
       drive(dt);
+      track.position.set(-focus.x, -focus.y, -focus.z);
+      if (moveGround(focus.x, focus.z)) moveStones(focus.z);
       moveDust(dt);
       const w = renderer.domElement.clientWidth, h = renderer.domElement.clientHeight;
       if (camera.aspect !== w / h) {
