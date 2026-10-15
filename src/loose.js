@@ -32,6 +32,7 @@ export function createLoose() {
     g.computeVertexNormals();
     return g;
   })();
+  const hullPts = Float32Array.from(geo.attributes.position.array);
   const mesh = new THREE.InstancedMesh(geo, new THREE.MeshStandardMaterial({ roughness: 0.95, flatShading: true }), COUNT);
   mesh.castShadow = true;
   mesh.receiveShadow = true;
@@ -81,7 +82,7 @@ export function createLoose() {
   }
 
   function buildGround(cx, cz) {
-    if (ground) world.removeCollider(ground, false);
+    const old = ground; // removed only once the new patch is in, so nothing resting on it wakes and drops
     const n = PATCH / CELL + 1;
     const verts = new Float32Array(n * n * 3);
     const idx = new Uint32Array((n - 1) * (n - 1) * 6);
@@ -103,27 +104,41 @@ export function createLoose() {
       }
     }
     ground = world.createCollider(R.ColliderDesc.trimesh(verts, idx).setFriction(0.9));
+    if (old) world.removeCollider(old, false);
     gx = cx;
     gz = cz;
   }
 
-  // Put stone `st` somewhere on the ground within RADIUS of (x, z), resting.
+  // Put stone `st` somewhere on the ground within RADIUS of (x, z), resting. Only on
+  // gentle ground (a stone left on a slope just rolls off on its own, which reads as
+  // stones pouring out of nowhere), flat side down, settled a little into the soil.
+  const slope = (px, pz) => Math.hypot(surfaceHeight(px + 1, pz) - surfaceHeight(px - 1, pz), surfaceHeight(px, pz + 1) - surfaceHeight(px, pz - 1)) / 2;
   function place(st, x, z, ahead) {
-    const a = Math.random() * Math.PI * 2;
-    const r = ahead ? RADIUS * (0.7 + 0.3 * Math.random()) : 8 + (RADIUS - 8) * Math.sqrt(Math.random());
-    const px = x + Math.cos(a) * r, pz = z + Math.sin(a) * r;
+    let px = x, pz = z, best = Infinity;
+    for (let k = 0; k < 10; k++) {
+      const a = Math.random() * Math.PI * 2;
+      const r = ahead ? RADIUS * (0.7 + 0.3 * Math.random()) : 8 + (RADIUS - 8) * Math.sqrt(Math.random());
+      const cx = x + Math.cos(a) * r, cz = z + Math.sin(a) * r;
+      const g = slope(cx, cz);
+      if (g < best) { best = g; px = cx; pz = cz; }
+      if (g < 0.1) break;
+    }
     st.size = 0.18 + Math.pow(Math.random(), 2.2) * 0.55;
     if (st.body) world.removeRigidBody(st.body);
     st.body = world.createRigidBody(
       R.RigidBodyDesc.dynamic()
-        .setTranslation(px, surfaceHeight(px, pz) + st.size * 0.8, pz)
-        .setRotation(new THREE.Quaternion().setFromEuler(new THREE.Euler(Math.random() * 3, Math.random() * 6, 0)))
-        .setLinearDamping(0.15)
-        .setAngularDamping(0.4)
+        .setTranslation(px, surfaceHeight(px, pz) + st.size * 0.55, pz)
+        .setRotation(new THREE.Quaternion().setFromEuler(new THREE.Euler(0, Math.random() * 6, 0)))
+        .setLinearDamping(0.5)
+        .setAngularDamping(1.5)
         .setCanSleep(true)
     );
-    world.createCollider(R.ColliderDesc.ball(st.size * 0.85).setDensity(2600).setFriction(0.8).setRestitution(0.15), st.body);
-    st.body.sleep();
+    // The stone's own lumpy shape, not a ball: flat faces don't roll on a slope.
+    const hull = new Float32Array(hullPts.length);
+    for (let i = 0; i < hull.length; i++) hull[i] = hullPts[i] * st.size;
+    world.createCollider(R.ColliderDesc.convexHull(hull).setDensity(2600).setFriction(0.9).setRestitution(0.1), st.body);
+    // Not forced to sleep: it settles onto the ground first (a frozen stone hung in
+    // the air, its shadow off to one side), then Rapier puts it to sleep itself.
     groundColorAtXZ(px, pz, col).multiplyScalar(0.75 + Math.random() * 0.3);
     mesh.setColorAt(st.i, col);
     if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
