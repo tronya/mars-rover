@@ -9,7 +9,7 @@ import { createBeams } from './beams.js';
 import { CHASSIS, SPEC, CHASSIS_LIST, WHEEL_DEFS, setChassis } from './chassis.js';
 import { VehicleSim, HoverSim, PLANET } from './physics.js';
 import { createTerrain, groundHeight, terrainHeight, BASES, roadSpawn, setViewScale, waterDepthAt, getSettlement, roadDist, ROAD_HALF, deckHeight } from './terrain.js';
-import { buildBase } from './base.js';
+import { buildBase, updateBases } from './base.js';
 import { createAudio } from './audio.js';
 import { createSeeds, seedsDelivered, LAB } from './seeds.js';
 import { createLandmarks } from './landmarks.js';
@@ -297,7 +297,7 @@ function weatherLook() {
 
 const beacons = [];
 for (const b of BASES) {
-  const built = buildBase(b.x, b.z);
+  const built = buildBase(b);
   scene.add(built.group);
   beacons.push({ ...built, x: b.x, z: b.z });
 }
@@ -1945,6 +1945,7 @@ function frame() {
     beams.update(dt, lampLevel() >= 2, Math.min(1.8, Math.max(1 - daylight, stormW * 0.7) * (1 + stormW)));
   }
   landmarks.update(sim.pos.x, sim.pos.z, daylight);
+  updateBases(daylight);
   npcs.update(dt, t, sim.pos, 1 - daylight);
   {
     const ev = jobs.update(t, dt, sim.pos.x, sim.pos.z, sim.speed);

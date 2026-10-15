@@ -133,6 +133,40 @@ test('stops at a building wall instead of driving through', async () => {
   assert.ok(closest[1] > 2, 'rapier rover reached the middle of the building');
 });
 
+test('stops at the base domes instead of driving into them', async () => {
+  const { BASES, basePoint, landmarkWall } = await import('../src/terrain.js');
+  const { SPEC } = await import('../src/chassis.js');
+  // The body centre stops about half a hull length (plus wheels) short of the skin.
+  const reach = SPEC.box.l / 2 + 3;
+  const n = { x: 0, z: 0 };
+  // АЛЬФА's shell dome on the left, БЕТА's front ring module, each driven at
+  // head-on from 25 m out along the base's own -z (in from the road side).
+  const targets = [[BASES[0], BASES[0].layout.domes[3]], [BASES[1], BASES[1].layout.domes[4]]];
+  for (const [b, d] of targets) {
+    const c = basePoint(b, d.x, d.z);
+    const from = basePoint(b, d.x, d.z + d.r + 25);
+    const heading = b.yaw + Math.PI;
+    const res = [];
+    for (const s of await both()) {
+      s.reset(from.x, from.z, heading);
+      let deep = 0, near = Infinity;
+      run(s, 9, () => {
+        deep = Math.max(deep, landmarkWall(s.pos.x, s.pos.y, s.pos.z, n));
+        near = Math.min(near, Math.hypot(s.pos.x - c.x, s.pos.z - c.z));
+        return { throttle: 1, steer: 0, brake: 0 };
+      });
+      res.push({ deep, near });
+    }
+    console.log(`  into ${b.name}'s dome (r ${d.r}): closest to its centre — old ${fmt(res[0].near)} m, rapier ${fmt(res[1].near)} m; deepest inside — old ${fmt(res[0].deep)}, rapier ${fmt(res[1].deep)}`);
+    for (const [i, r] of res.entries()) {
+      const who = i ? 'rapier' : 'old';
+      assert.ok(r.near < d.r + reach, `${who} rover never reached ${b.name}'s dome`);
+      assert.ok(r.near > d.r, `${who} rover got inside ${b.name}'s dome`);
+      assert.ok(r.deep < 0.5, `${who} rover drove into ${b.name}'s dome`);
+    }
+  }
+});
+
 test('wheels turn with the ground speed and stop when the rover stops', async () => {
   const [, b] = await both();
   run(b, 3, { throttle: 1, steer: 0, brake: 0 });
