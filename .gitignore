@@ -9,3 +9,6 @@
 # Dependencies and build output
 node_modules/
 dist/
+
+# Factory run state (tools/factory-status.mjs)
+.factory/
