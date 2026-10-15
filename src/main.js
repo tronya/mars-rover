@@ -18,6 +18,7 @@ import { createNPCs } from './npc.js';
 import { createTracks } from './tracks.js';
 import { createSand } from './sand.js';
 import { createLoose } from './loose.js';
+import { createRapierSim } from './rapier-sim.js';
 import { createKickup } from './kickup.js';
 import { createGrass } from './grass.js';
 import { createWater } from './water.js';
@@ -342,7 +343,23 @@ const flashback = createFlashback(); // the Гермес-1 wreck; only exists on
 scene.add(flashback.group);
 scene.add(tracks.mesh);
 
-const sim = SPEC.flight ? new HoverSim() : new VehicleSim(); // the glider flies, everything else drives
+// Physics engine for the drive: the hand-written one (physics.js) or Rapier
+// (rapier-sim.js, experimental). ?physics=rapier / ?physics=classic switches and is
+// remembered; the glider always flies on HoverSim.
+const PHYSICS = (() => {
+  let p = null;
+  try {
+    p = new URLSearchParams(location.search).get('physics');
+    if (p) localStorage.setItem('rover.physics', p);
+    else p = localStorage.getItem('rover.physics');
+  } catch (e) { /* storage may be blocked */ }
+  return p === 'rapier' ? 'rapier' : 'classic';
+})();
+const sim = SPEC.flight
+  ? new HoverSim()
+  : PHYSICS === 'rapier'
+  ? await createRapierSim().catch((e) => { console.warn('Rapier failed, using classic physics', e); return new VehicleSim(); })
+  : new VehicleSim(); // the glider flies, everything else drives
 {
   const sp = roadSpawn(false);
   sim.reset(sp.x, sp.z, sp.yaw);
@@ -2025,7 +2042,7 @@ function frame() {
   fpsEma += (1000 / Math.max(rawMs, 1) - fpsEma) * 0.08;
   if (t > dbgAt) {
     dbgAt = t + 0.3;
-    dbgFpsEl.textContent = `${Math.round(fpsEma)} FPS`;
+    dbgFpsEl.textContent = `${Math.round(fpsEma)} FPS${sim.engine === 'rapier' ? ' · Rapier' : ''}`;
     dbgMsEl.textContent = `· ${msEma.toFixed(1)} мс/кадр`;
   }
 
