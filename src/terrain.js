@@ -696,6 +696,18 @@ function verdantaHeight(x, z) {
 
 // A graded road across rough country: gentle along the road, hilly, cratered and
 // strewn with boulders once you leave it. Raw: before landmarks level their ground.
+// Wind-blown ripples on the flat, bright, dusty ground (the low basins of the orbiter
+// photo): crests a dozen metres apart across a global wind direction, bent a little by
+// noise. Zero on the road, on slopes and on bare dark ground. Returns metres of height.
+const WIND = 0.6; // radians: the crests run perpendicular to this
+export function sandRipples(x, z) {
+  if (!REAL) return 0;
+  const amt = dustDepth(x, z) * (1 - smooth(0.04, 0.12, REAL.slope(x, z)));
+  if (amt <= 0.02) return 0;
+  const ph = (x * Math.cos(WIND) + z * Math.sin(WIND)) * 0.52 + (fbm(x * 0.02 + 5, z * 0.02 - 8, 2) - 0.44) * 9;
+  return amt * 0.3 * (Math.sin(ph) + 0.4 * Math.sin(2 * ph + 1));
+}
+
 // Real Mars: the DTM is the ground. Along the road it is graded to the road's own
 // profile; far off it, the land is as measured. Small noise on top because 20 m pixels
 // say nothing about what a wheel feels.
@@ -750,11 +762,12 @@ function realMarsHeight(x, z) {
   // small craters only on open, gentle ground well off the road and the base pads
   const open = (1 - smooth(0.08, 0.2, slope)) * smooth(0.3, 0.9, rough);
   const bowls = open > 0 ? smallCraters(x, z) * open : 0;
+  const ripples = sandRipples(x, z);
   const steep = smooth(0.1, 0.4, slope);
   const crag = steep > 0
     ? ((fbm(x * 0.11 + 70, z * 0.11 - 30, 3) - 0.44) * 8 + (vnoise(x * 0.45 + 5, z * 0.45 + 9) - 0.5) * 2) * steep * rough
     : 0;
-  return h + (mid + bumpy + small + crag + bowls) * k;
+  return h + (mid + bumpy + small + crag + bowls + ripples) * k;
 }
 
 function rawTerrainHeight(x, z) {

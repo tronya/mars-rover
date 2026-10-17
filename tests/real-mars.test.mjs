@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 if (process.env.TEST_PLANET && process.env.TEST_PLANET !== 'mars') process.exit(0);
 if (process.env.TEST_REGION === 'classic') process.exit(0); // nothing real to test there
 const { REAL, REAL_PLACES } = await import('../src/real-mars.js');
-const { terrainHeight, groundHeight, smallCraters, ROUTE_PTS, ROUTE_LEN, BASES, roadDist } = await import('../src/terrain.js');
+const { terrainHeight, groundHeight, smallCraters, sandRipples, dustDepth, ROUTE_PTS, ROUTE_LEN, BASES, roadDist } = await import('../src/terrain.js');
 
 test('the real map loaded', () => {
   assert.ok(REAL, 'REAL is null: textures/mars/jezero-height.bin missing?');
@@ -84,8 +84,8 @@ test('steep ground is broken up, flat ground and the road are not', () => {
     for (let x = -REAL.halfW + 2200; x < REAL.halfW - 2200 && n < 400; x += 211) for (let z = -REAL.halfH + 2200; z < REAL.halfH - 2200 && n < 400; z += 197) {
       if (roadDist(x, z) < 400 || !pick(REAL.slope(x, z))) continue;
       // deviation of the game ground from the smooth DTM, minus the small-noise layers' own size
-      // flat ground also carries the small craters (exactly, off the road on a <8% slope): take them out
-      const d = terrainHeight(x, z) - (REAL.height(x, z) - REAL.ref) - (REAL.slope(x, z) < 0.08 ? smallCraters(x, z) : 0);
+      // flat ground also carries the small craters and sand ripples (exactly, off the road on a <8% slope): take them out
+      const d = terrainHeight(x, z) - (REAL.height(x, z) - REAL.ref) - (REAL.slope(x, z) < 0.08 ? smallCraters(x, z) + sandRipples(x, z) : 0);
       sum += d * d; n++;
     }
     return { rms: Math.sqrt(sum / Math.max(n, 1)), n };
@@ -173,4 +173,18 @@ test('small craters: many, mostly small, none on the road or the base pads', () 
   for (const b of BASES) for (const [dx, dz] of [[20, 0], [-20, 0], [0, 20], [0, -20]]) {
     assert.ok(Math.abs(terrainHeight(b.x + dx, b.z + dz) - terrainHeight(b.x, b.z)) < 1.2, `${b.name} pad is cratered`);
   }
+});
+
+test('sand ripples: only on flat dust, decimetres high, none on the road', () => {
+  let strongest = 0, dusty = 0, offDust = 0;
+  for (let x = -REAL.halfW + 2200; x < REAL.halfW - 2200; x += 53) for (let z = -REAL.halfH + 2200; z < REAL.halfH - 2200; z += 59) {
+    const r = Math.abs(sandRipples(x, z));
+    if (dustDepth(x, z) > 0.8 && REAL.slope(x, z) < 0.04) { dusty++; strongest = Math.max(strongest, r); }
+    if (dustDepth(x, z) < 0.02) offDust = Math.max(offDust, r);
+  }
+  console.log(`  ripples: strongest ${strongest.toFixed(2)} m over ${dusty} dusty flat points, ${offDust.toFixed(2)} m on bare ground`);
+  assert.ok(dusty > 20, 'no dusty flats to test on');
+  assert.ok(strongest > 0.15 && strongest < 0.5, 'ripple height out of range');
+  assert.equal(offDust, 0, 'ripples on bare ground');
+  for (const p of ROUTE_PTS) assert.equal(sandRipples(p.x, p.z), 0, 'ripples on the road');
 });
