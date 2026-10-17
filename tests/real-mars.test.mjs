@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 
 if (process.env.TEST_PLANET && process.env.TEST_PLANET !== 'mars') process.exit(0);
 if (process.env.TEST_REGION === 'classic') process.exit(0); // nothing real to test there
-const { REAL } = await import('../src/real-mars.js');
+const { REAL, REAL_PLACES } = await import('../src/real-mars.js');
 const { terrainHeight, groundHeight, ROUTE_PTS, ROUTE_LEN, BASES, roadDist } = await import('../src/terrain.js');
 
 test('the real map loaded', () => {
@@ -137,4 +137,17 @@ test('rubble gathers on slopes, flats are clearer', () => {
   console.log(`  ground covered by a rock: steep ${(steep.share * 100).toFixed(1)} % (${steep.n} pts), flat ${(flat.share * 100).toFixed(1)} % (${flat.n} pts)`);
   assert.ok(steep.n >= 200 && flat.n >= 200, 'not enough sample points');
   assert.ok(steep.share > flat.share, 'slopes are not stonier than flats');
+});
+
+test('named places: on the map, clear of the bases, each with a name, a letter and a line of radio', () => {
+  assert.ok(REAL_PLACES.length >= 4, 'few places');
+  const letters = new Set();
+  for (const p of REAL_PLACES) {
+    assert.ok(p.name && p.letter && p.blurb, `${p.name}: incomplete`);
+    assert.ok(Math.abs(p.x) < REAL.halfW - 1500 && Math.abs(p.z) < REAL.halfH - 1500, `${p.name} is at the edge of the map`);
+    for (const b of BASES) assert.ok(Math.hypot(p.x - b.x, p.z - b.z) > 300, `${p.name} is inside ${b.name}`);
+    assert.ok(!letters.has(p.letter), `letter ${p.letter} used twice`);
+    letters.add(p.letter);
+  }
+  for (const b of BASES) assert.ok(!letters.has(b.name[0]), `a place uses the letter of ${b.name}`);
 });

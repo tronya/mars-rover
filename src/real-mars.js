@@ -16,7 +16,8 @@ const REGIONS = {
     // АЛЬФА at Bradbury Landing, where Curiosity touched down; БЕТА 8 km on, among the foothills near Pahrump Hills
     bases: [{ lon: 137.4417, lat: -4.5895 }, { lon: 137.38, lat: -4.72 }],
     places: [
-      { name: 'Гора Шарпа', letter: 'Ш', lon: 137.85, lat: -5.08, blurb: 'Eolis Mons, п\'ять кілометрів шарів: кожен шар — інша епоха Марса.' },
+      // the summit itself lies outside this window, so the marker sits on the highest ground in it
+      { name: 'Схил гори Шарпа', letter: 'Ш', highest: true, blurb: 'Підніжжя Eolis Mons, п\'яти кілометрів шарів: кожен шар — інша епоха Марса.' },
       { name: 'Жовтий Ніж', letter: 'Ж', lon: 137.45, lat: -4.60, blurb: 'Тут марсохід Curiosity знайшов глину: колись тут була вода, придатна для життя.' },
     ],
     near: ['Пагорб-оглядач', 'Западина', 'Уступ'],
@@ -143,6 +144,14 @@ function findRoute(real, waypoints) {
 
 // A base or place is given either as map pixels or as lon/lat; both end up in world metres.
 function toWorld(real, a) {
+  if (a.highest) {
+    let best = null;
+    for (let x = -real.halfW + 2000; x <= real.halfW - 2000; x += 100) for (let z = -real.halfH + 2000; z <= real.halfH - 2000; z += 100) {
+      const h = real.height(x, z);
+      if (!best || h > best.h) best = { x, z, h };
+    }
+    return [best.x, best.z];
+  }
   if (a.px !== undefined) return [a.px * real.meta.mppX - real.halfW, a.py * real.meta.mppY - real.halfH];
   const p = real.lonLat(a.lon, a.lat);
   return [p.x, p.z];
