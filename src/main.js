@@ -35,7 +35,7 @@ import { createDustTrail } from './dust.js';
 import { createSonar, MAX_BIAS as SONAR_MAX_BIAS } from './sonar.js';
 import { createMinimap3D } from './minimap3d.js';
 import { createSkyMaterial, updateSky, horizonColor, planetOrbit, marsMoons } from './sky.js';
-import { REAL } from './real-mars.js';
+import { REAL, REAL_PLACES } from './real-mars.js';
 import { createWeather, WEATHER_TEXT } from './weather.js';
 
 const ARRIVE_R = 70; // how close counts as docked at a base
@@ -1160,7 +1160,10 @@ const minimap = createMinimap3D(
   document.getElementById('map3dCanvas'),
   document.getElementById('map3dOverlay'),
   seeds ? seeds.items : missions.modules,
-  seeds ? [{ x: LAB.x, z: LAB.z, text: 'Л', color: '#7ce68f' }] : TOWN ? [{ x: TOWN.x, z: TOWN.z, text: 'О', color: '#ffd08a' }] : []
+  [
+    ...(seeds ? [{ x: LAB.x, z: LAB.z, text: 'Л', color: '#7ce68f' }] : TOWN ? [{ x: TOWN.x, z: TOWN.z, text: 'О', color: '#ffd08a' }] : []),
+    ...REAL_PLACES.map((p) => ({ x: p.x, z: p.z, text: p.letter, color: '#ffd08a' })),
+  ]
 );
 
 function updateRouteInfo() {
@@ -2077,9 +2080,16 @@ function frame() {
   for (const b of BASES) compassTargets.push({ x: b.x, z: b.z, kind: 'square', text: b.name[0], color: '#4fe0ff' });
   compassTargets.push(...jobs.targets());
   if (TOWN) compassTargets.push({ x: TOWN.x, z: TOWN.z, kind: 'square', text: 'О', color: '#ffd08a' });
+  for (const p of REAL_PLACES) compassTargets.push({ x: p.x, z: p.z, kind: 'square', text: p.letter, color: '#ffd08a' });
   for (const t of compassTargets) {
     t.bearing = compassBearing(t.x - sim.pos.x, t.z - sim.pos.z);
     t.dist = Math.hypot(t.x - sim.pos.x, t.z - sim.pos.z);
+  }
+  for (const p of REAL_PLACES) {
+    if (!p.seen && Math.hypot(p.x - sim.pos.x, p.z - sim.pos.z) < 500) {
+      p.seen = true;
+      say([['ОРІОН · геолог', `${p.name}. ${p.blurb}`]]);
+    }
   }
   drawCompass(sim.yaw(), compassTargets);
   minimap.setDynamic(jobs.targets());

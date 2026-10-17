@@ -121,3 +121,39 @@ export const REAL_ROUTE = (() => {
   }
   return out;
 })();
+
+// Named places on the real map, so the compass and the map have something real to point
+// at. The far ones were picked off the hillshade (map pixels); the near ones are found in
+// the data itself, within reach of the road. `blurb` is what the radio says on arrival.
+const FAR_PLACES = [
+  { name: 'Русло дельти', letter: 'Р', px: 520, py: 650, blurb: 'Тут річка колись впадала в озеро Єзеро. Видно, як вода розрізала вал.' },
+  { name: 'Кратер-свідок', letter: 'К', px: 645, py: 705, blurb: 'Малий кратер на дельті: удар стався вже після того, як озеро зникло.' },
+];
+function nearPlaces() {
+  const pts = REAL_ROUTE;
+  const near = (x, z) => { let d = Infinity; for (const [px, pz] of pts) d = Math.min(d, Math.hypot(x - px, z - pz)); return d; };
+  let hi = null, lo = null, steep = null;
+  for (let x = -REAL.halfW; x <= REAL.halfW; x += 100) for (let z = -REAL.halfH; z <= REAL.halfH; z += 100) {
+    const d = near(x, z);
+    if (d < 400 || d > 2600) continue;
+    const h = REAL.height(x, z);
+    const sl = Math.hypot(REAL.height(x + 30, z) - REAL.height(x - 30, z), REAL.height(x, z + 30) - REAL.height(x, z - 30)) / 60;
+    if (!hi || h > hi.h) hi = { x, z, h };
+    if (!lo || h < lo.h) lo = { x, z, h };
+    if (!steep || sl > steep.sl) steep = { x, z, sl };
+  }
+  return [
+    { name: 'Пагорб-оглядач', letter: 'П', ...hi, blurb: 'Найвища точка поблизу траси. Звідси видно і дельту, і дно кратера.' },
+    { name: 'Западина', letter: 'З', ...lo, blurb: 'Найнижча точка поблизу траси: тут збирався б пил, якби дули вітри.' },
+    { name: 'Уступ', letter: 'У', ...steep, blurb: 'Крутий уступ: шар за шаром порода, яку колись відклала вода.' },
+  ];
+}
+export const REAL_PLACES = REAL
+  ? [
+    ...FAR_PLACES.map((p) => ({
+      name: p.name, letter: p.letter, blurb: p.blurb,
+      x: p.px * REAL.meta.mppX - REAL.halfW, z: p.py * REAL.meta.mppY - REAL.halfH,
+    })),
+    ...nearPlaces(),
+  ]
+  : [];
