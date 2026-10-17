@@ -8,7 +8,7 @@ import { createAmbient } from './ambient.js';
 import { createBeams } from './beams.js';
 import { CHASSIS, SPEC, CHASSIS_LIST, WHEEL_DEFS, setChassis } from './chassis.js';
 import { VehicleSim, HoverSim, PLANET } from './physics.js';
-import { createTerrain, groundHeight, terrainHeight, BASES, roadSpawn, setViewScale, waterDepthAt, getSettlement, roadDist, ROAD_HALF, deckHeight, ROUTE_LEN } from './terrain.js';
+import { createTerrain, groundHeight, terrainHeight, BASES, roadSpawn, setViewScale, waterDepthAt, getSettlement, roadDist, ROAD_HALF, deckHeight, ROUTE_LEN, dustDepth } from './terrain.js';
 import { buildBase, updateBases } from './base.js';
 import { createAudio } from './audio.js';
 import { createSeeds, seedsDelivered, LAB } from './seeds.js';
@@ -38,6 +38,7 @@ import { createSkyMaterial, updateSky, horizonColor, planetOrbit, marsMoons } fr
 import { REAL, REAL_PLACES } from './real-mars.js';
 import { fogAltitudeScale } from './atmosphere.js';
 import { recordLeg, bestOf, fmtTime } from './records.js';
+import { stepDust, shakeOff, chargeFactor } from './paneldust.js';
 import { createRecorder, ghostAt, ghostTimeAt, saveGhost, loadGhost, ghostKey } from './ghost.js';
 import { formatAltitude, formatTilt, pitchRollDeg } from './attitude.js';
 import { createWeather, WEATHER_TEXT } from './weather.js';
@@ -1103,7 +1104,11 @@ function distanceTo(b) {
 }
 
 // ---------- rover power state ----------
-const power = { battery: BATTERY_MAX, panels: 0, wantPanels: false, charge: 0, draw: 0 };
+const power = { battery: BATTERY_MAX, panels: 0, wantPanels: false, charge: 0, draw: 0, dust: 0 };
+try { power.dust = Math.min(1, Math.max(0, Number(localStorage.getItem('rover.paneldust')) || 0)); } catch (e) { /* storage may be blocked */ }
+const hudDust = document.getElementById('dustStat');
+let dustShown = '';
+let dustSavedAt = 0;
 let timeOfDay = 0.62; // start in the afternoon, wings stowed
 const el = (id) => document.getElementById(id);
 const hudBattery = el('battery');
@@ -1119,6 +1124,7 @@ function togglePanels() {
     return;
   }
   power.wantPanels = !power.wantPanels;
+  if (power.wantPanels) { power.dust = shakeOff(power.dust); flash('Крила розкладено: частину пилу струшено'); }
   if (audio) audio.servo(power.wantPanels);
 }
 
@@ -1460,6 +1466,7 @@ function autopilotInput() {
   if (auto.state === 'stopping' && Math.abs(sim.speed) < 0.6) {
     if (!power.wantPanels) {
       power.wantPanels = true;
+      power.dust = shakeOff(power.dust); // the autopilot unfolds the wings too
       if (audio) audio.servo(true);
     }
     auto.state = 'charging';
@@ -1848,7 +1855,12 @@ function frame() {
   vehicle.setPanels(power.panels);
 
   // Charging needs the wings fully open and the sun above the horizon.
-  power.charge = power.panels > 0.99 ? (CHARGE_PEAK * TR.solar / TR.pack) * chargeMul * Math.max(0, sunDir.y) * (1 - 0.75 * weather.w) : 0;
+  // dust on the wings (paneldust.js): settles as you drive through soft ground and storms
+  power.dust = stepDust(power.dust, dt, { speed: sim.speed, soft: REAL ? dustDepth(sim.pos.x, sim.pos.z) : 0.3, storm: weather.w, open: power.wantPanels });
+  power.charge = power.panels > 0.99 ? (CHARGE_PEAK * TR.solar / TR.pack) * chargeMul * Math.max(0, sunDir.y) * (1 - 0.75 * weather.w) * chargeFactor(power.dust) : 0;
+  const dustText = `${Math.round(power.dust * 100)}%`;
+  if (dustText !== dustShown) { dustShown = dustText; hudDust.textContent = dustText; hudDust.style.color = power.dust > 0.5 ? '#ffb27a' : ''; }
+  if (clock.elapsedTime > dustSavedAt) { dustSavedAt = clock.elapsedTime + 10; try { localStorage.setItem('rover.paneldust', power.dust.toFixed(3)); } catch (e) { /* storage may be blocked */ } }
   // Rear-only drive spins up half the drivetrain, so it costs less to hold the same
   // throttle — the payoff for giving up front-axle traction above AWD_UP.
   const moveV = Math.max(3, Math.abs(sim.speed));
