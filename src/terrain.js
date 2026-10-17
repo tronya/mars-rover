@@ -1651,6 +1651,8 @@ function groundColorAt(x, z, y, normalY, out) {
   const patch = fbm(x * 0.008 - 210, z * 0.008 + 77, 2);
   out.copy(dark).lerp(base, smooth(0.25, 0.6, a)).lerp(dust, smooth(0.5, 0.85, m) * 0.55);
   out.lerp(pale, smooth(0.46, 0.74, macro) * 0.5).lerp(rust, smooth(0.48, 0.72, patch) * 0.32);
+  // Real Mars: the orbiter photo says where the ground is bright dust and where dark.
+  if (REAL) out.multiplyScalar(0.55 + 0.9 * REAL.albedo(x, z));
   // The graded road is paler, packed dust; off it the ground is darker and rockier.
   const onRoad = 1 - smooth(ROAD_HALF + 14, ROAD_HALF + 170, roadDist(x, z));
   out.lerp(roadCol, onRoad * 0.6);
@@ -1720,8 +1722,55 @@ function tileGeometry(seg) {
   return geo;
 }
 
+// The whole DTM as one coarse mesh (100 m cells), so the rim, the delta and the crater
+// floor stand on the horizon far beyond the streamed tiles. Near the rover it is sunk
+// out of the way, so the real tiles always win the depth test.
+const FAR_STEP = 5;
+function createFarMesh() {
+  const W = Math.floor((REAL.meta.width - 1) / FAR_STEP) + 1;
+  const H = Math.floor((REAL.meta.height - 1) / FAR_STEP) + 1;
+  const pos = new Float32Array(W * H * 3);
+  const col = new Float32Array(W * H * 3);
+  const c = new THREE.Color();
+  for (let j = 0; j < H; j++) for (let i = 0; i < W; i++) {
+    const x = i * FAR_STEP * REAL.meta.mppX - REAL.halfW;
+    const z = j * FAR_STEP * REAL.meta.mppY - REAL.halfH;
+    const k = (j * W + i) * 3;
+    pos[k] = x; pos[k + 1] = REAL.height(x, z) - REAL.ref; pos[k + 2] = z;
+    c.copy(base).lerp(dust, 0.35).multiplyScalar(0.55 + 0.9 * REAL.albedo(x, z));
+    col[k] = c.r; col[k + 1] = c.g; col[k + 2] = c.b;
+  }
+  const idx = new Uint32Array((W - 1) * (H - 1) * 6);
+  let n = 0;
+  for (let j = 0; j < H - 1; j++) for (let i = 0; i < W - 1; i++) {
+    const a = j * W + i;
+    idx[n++] = a; idx[n++] = a + W; idx[n++] = a + 1;
+    idx[n++] = a + 1; idx[n++] = a + W; idx[n++] = a + W + 1;
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  geo.setIndex(new THREE.BufferAttribute(idx, 1));
+  geo.computeVertexNormals();
+  const uniforms = { uRover: { value: new THREE.Vector2() } };
+  const mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, metalness: 0 });
+  mat.onBeforeCompile = (sh) => {
+    sh.uniforms.uRover = uniforms.uRover;
+    sh.vertexShader = sh.vertexShader
+      .replace('#include <common>', '#include <common>\nuniform vec2 uRover;')
+      .replace('#include <begin_vertex>', `#include <begin_vertex>
+        transformed.y -= 40.0 * (1.0 - smoothstep(1700.0, 2300.0, distance(position.xz, uRover)));`);
+  };
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.frustumCulled = false;
+  mesh.userData.uniforms = uniforms;
+  return mesh;
+}
+
 export function createTerrain(anisotropy = 8) {
   const group = new THREE.Group();
+  const farMesh = REAL ? createFarMesh() : null;
+  if (farMesh) group.add(farMesh);
   const tex = makeGroundTexture(anisotropy);
   const mat = new THREE.MeshStandardMaterial({
     vertexColors: true, map: tex, bumpMap: tex, bumpScale: 0.35, roughness: 1, metalness: 0,
@@ -2071,6 +2120,7 @@ float rockLum( vec3 p, vec3 w ) {
   // beam: optional {dx, dz} unit vector of the long-range spotlight, so rocks along it
   // cast shadows as far out as the beam reaches.
   function update(x, z, budget = 1, beam = null) {
+    if (farMesh) farMesh.userData.uniforms.uRover.value.set(x, z);
     const ci = Math.round(x / TILE);
     const cj = Math.round(z / TILE);
     if (ci !== centerI || cj !== centerJ) {

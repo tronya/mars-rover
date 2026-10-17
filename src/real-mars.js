@@ -20,7 +20,7 @@ async function loadBytes(name) {
   return new Uint8Array(await res.arrayBuffer());
 }
 
-function build(meta, bytes) {
+function build(meta, bytes, albedoBytes) {
   const u16 = new Uint16Array(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength));
   const { width: W, height: H, mppX, mppY, minH, maxH } = meta;
   const span = (maxH - minH) / 65535;
@@ -35,14 +35,20 @@ function build(meta, bytes) {
     const u = fx - i, v = fz - j;
     return at(i, j) * (1 - u) * (1 - v) + at(i + 1, j) * u * (1 - v) + at(i, j + 1) * (1 - u) * v + at(i + 1, j + 1) * u * v;
   }
-  return { meta, halfW, halfH, height };
+  // 0..1 brightness of the ground from the CTX orthoimage, nearest pixel
+  function albedo(x, z) {
+    const i = Math.min(W - 1, Math.max(0, Math.round((x + halfW) / mppX)));
+    const j = Math.min(H - 1, Math.max(0, Math.round((z + halfH) / mppY)));
+    return albedoBytes[j * W + i] / 255;
+  }
+  return { meta, halfW, halfH, height, albedo };
 }
 
 export const REAL = await (async () => {
   if (PLANET !== 'mars' || region !== 'jezero') return null;
   try {
-    const [metaBytes, bytes] = await Promise.all([loadBytes('jezero-meta.json'), loadBytes('jezero-height.bin')]);
-    return build(JSON.parse(new TextDecoder().decode(metaBytes)), bytes);
+    const [metaBytes, bytes, albedoBytes] = await Promise.all([loadBytes('jezero-meta.json'), loadBytes('jezero-height.bin'), loadBytes('jezero-albedo.bin')]);
+    return build(JSON.parse(new TextDecoder().decode(metaBytes)), bytes, albedoBytes);
   } catch (e) {
     console.warn('real Mars unavailable, using the procedural one:', e);
     return null;

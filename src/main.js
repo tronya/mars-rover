@@ -35,6 +35,7 @@ import { createDustTrail } from './dust.js';
 import { createSonar, MAX_BIAS as SONAR_MAX_BIAS } from './sonar.js';
 import { createMinimap3D } from './minimap3d.js';
 import { createSkyMaterial, updateSky, horizonColor, planetOrbit, marsMoons } from './sky.js';
+import { REAL } from './real-mars.js';
 import { createWeather, WEATHER_TEXT } from './weather.js';
 
 const ARRIVE_R = 70; // how close counts as docked at a base
@@ -42,8 +43,10 @@ const ARRIVE_R = 70; // how close counts as docked at a base
 // turned the ridges near-white. Linear fog leaves everything within FOG_NEAR
 // untouched and reaches full strength exactly where the streamed terrain window
 // ends (660 m), so it also hides the edge of the world.
-const FOG_NEAR = 594;
-const FOG_FAR = 1179;
+// Real Mars shows the whole DTM as a far mesh, so the haze is pushed out to let the rim
+// and the delta stand on the horizon.
+const FOG_NEAR = REAL ? 1500 : 594;
+const FOG_FAR = REAL ? 7000 : 1179;
 // ---------- solar rover ----------
 const SOL_SECONDS = 1080; // one Martian day, compressed (18 min)
 const BATTERY_MAX = 100;
@@ -94,7 +97,7 @@ document.body.appendChild(renderer.domElement);
 const scene = new THREE.Scene();
 scene.fog = new THREE.Fog(0xffffff, FOG_NEAR, FOG_FAR);
 
-const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 2000);
+const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, REAL ? 9000 : 2000);
 
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
