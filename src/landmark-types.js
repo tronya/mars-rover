@@ -10,6 +10,7 @@
 //   cyl  { x, z, r, h }         upright cylinder
 //   dome { x, z, r, h }         rounded cap (same profile as a boulder)
 //   ring { x, z, r, w, y0, h }  torus band between y0 and h (y0 > 0 leaves a gap to drive under — not used)
+//   seg  { x, z, x2, z2, r, h } a corridor lying from (x, z) to (x2, z2), r thick (the bases' tubes)
 
 export const LANDMARK_TYPES = {
   mars: [

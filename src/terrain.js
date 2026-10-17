@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { PLANET } from './planet.js';
 import { LANDMARK_TYPES, settlementLayout, SETTLEMENT_R } from './landmark-types.js';
+import { BASE_LAYOUTS, baseSolids } from './base-layout.js';
 
 // A ~10 km crossing between two bases. The world is far too large for one mesh, so
 // the ground is analytic (terrainHeight) and the visuals are streamed as tiles that
@@ -133,11 +134,32 @@ export const ROUTE_PTS = (() => {
 })();
 export const ROUTE_LEN = ROUTE_PTS[ROUTE_PTS.length - 1].s;
 
-export const BASES = [
-  { name: 'АЛЬФА', x: ROUTE_PTS[0].x, z: ROUTE_PTS[0].z },
-  { name: 'БЕТА', x: ROUTE_PTS[ROUTE_PTS.length - 1].x, z: ROUTE_PTS[ROUTE_PTS.length - 1].z },
-];
+// Each base is turned so its layout's +z (base-layout.js) faces the way the road
+// leaves it — measured 40 m out, past the first wiggle — which keeps the lane from
+// the road onto the main pad clear on every planet. `cargo` is the cargo pad in world
+// space, where jobs.js leaves crates for pick-up.
+const BASE_ROAD_LOOK = 40;
+export const BASES = [0, 1].map((i) => {
+  const n = ROUTE_PTS.length;
+  const end = i === 1;
+  const p = ROUTE_PTS[end ? n - 1 : 0];
+  const dir = end ? -1 : 1;
+  let k = end ? n - 1 : 0;
+  while (k + dir >= 0 && k + dir < n && Math.abs(ROUTE_PTS[k].s - p.s) < BASE_ROAD_LOOK) k += dir;
+  const yaw = Math.atan2(ROUTE_PTS[k].x - p.x, ROUTE_PTS[k].z - p.z);
+  const b = { name: end ? 'БЕТА' : 'АЛЬФА', x: p.x, z: p.z, yaw, layout: BASE_LAYOUTS[i] };
+  b.cargo = basePoint(b, b.layout.pads[1].x, b.layout.pads[1].z);
+  return b;
+});
 export const BASE_FLAT_R = 95;
+
+// A point in a base's own frame (base-layout.js) to world x/z — the same turn three.js
+// gives the base's group with rotation.y = yaw.
+export function basePoint(b, lx, lz) {
+  const c = Math.cos(b.yaw);
+  const s = Math.sin(b.yaw);
+  return { x: b.x + lx * c + lz * s, z: b.z - lx * s + lz * c };
+}
 
 // Верданта's seed lab parks beside АЛЬФА, off to one side of where the road leaves
 // it — still on the base's flattened pad. Defined here (seeds.js re-exports it) so
@@ -809,7 +831,7 @@ function pushSite(lm) {
 function initLandmarks() {
   lmList = [];
   lmGrid = new Map();
-  for (const b of BASES) addSolidSite(BASE_SOLIDS, b.x, b.z);
+  for (const b of BASES) addSolidSite({ name: `База ${b.name}`, id: 'base', colliders: baseSolids(b.layout) }, b.x, b.z, b.yaw, BASE_SITE_R);
   for (const [x, z] of BRIDGE_SEEDS) planBridge(x, z);
   bridgeSites();
   if (PLANET === 'verdanta') addSolidSite(LAB_SOLIDS, LAB.x, LAB.z);
@@ -883,25 +905,9 @@ function initLandmarks() {
 // The bases' own buildings (base.js) and Верданта's lab (seeds.js) are solid too —
 // they used to be drive-through. They join the same grid, but level no ground
 // (their pads are flattened already) and draw nothing here.
-const tubeAlong = (ax, az, bx, bz, r, h) => {
-  const out = [];
-  for (let k = 1; k <= 5; k++) {
-    const t = k / 6;
-    out.push({ k: 'cyl', x: ax + (bx - ax) * t, z: az + (bz - az) * t, r, h });
-  }
-  return out;
-};
-const BASE_SOLIDS = {
-  name: 'База', id: 'base', colliders: [
-    { k: 'dome', x: -12, z: -8, r: 8, h: 8 },
-    { k: 'dome', x: 10, z: -12, r: 6, h: 6 },
-    { k: 'dome', x: 4, z: 10, r: 7, h: 7 },
-    ...tubeAlong(-12, -8, 4, 10, 2.2, 4.6),
-    ...tubeAlong(10, -12, 4, 10, 2.2, 4.6),
-    { k: 'cyl', x: 18, z: 6, r: 0.8, h: 34 },
-    ...[0, 1, 2, 3, 4, 5].map((i) => ({ k: 'cyl', x: -30, z: -18 + i * 7.5, r: 0.4, h: 3.3 })),
-  ],
-};
+// Their shapes come from base-layout.js and reach well past the main pad, so a base
+// site reaches farther than the lab's.
+const BASE_SITE_R = 70;
 const LAB_SOLIDS = {
   name: 'Лабораторія', id: 'lab', colliders: [
     { k: 'cyl', x: -5, z: 0, r: 3.9, h: 6.5 },
@@ -909,8 +915,8 @@ const LAB_SOLIDS = {
     { k: 'cyl', x: 2, z: -6, r: 0.25, h: 12 },
   ],
 };
-function addSolidSite(type, x, z) {
-  const lm = { type, x, z, y: rawTerrainHeight(x, z), yaw: 0, cos: 1, sin: 0, r: 0, R: 45, hidden: true };
+function addSolidSite(type, x, z, yaw = 0, R = 45) {
+  const lm = { type, x, z, y: rawTerrainHeight(x, z), yaw, cos: Math.cos(yaw), sin: Math.sin(yaw), r: 0, R, hidden: true };
   lmList.push(lm);
   for (let i = Math.floor((x - lm.R) / LM_CELL); i <= Math.floor((x + lm.R) / LM_CELL); i++) {
     for (let j = Math.floor((z - lm.R) / LM_CELL); j <= Math.floor((z + lm.R) / LM_CELL); j++) {
@@ -1037,6 +1043,19 @@ export function landmarkWall(px, py, pz, out) {
         const ez = c.d / 2 - Math.abs(uz);
         if (ex <= 0 || ez <= 0) continue;
         if (ex < ez) { depth = ex; nx = Math.sign(ux) || 1; } else { depth = ez; nz = Math.sign(uz) || 1; }
+      } else if (c.k === 'seg') {
+        // A corridor lying along the ground: a round tube from (x, z) to (x2, z2),
+        // pushed out sideways from its axis.
+        if (ly > c.h) continue;
+        const sx = c.x2 - c.x;
+        const sz = c.z2 - c.z;
+        const t = clamp((ux * sx + uz * sz) / (sx * sx + sz * sz), 0, 1);
+        const qx = ux - sx * t;
+        const qz = uz - sz * t;
+        const d = Math.hypot(qx, qz);
+        if (d >= c.r) continue;
+        depth = c.r - d;
+        if (d < 1e-6) { nx = -sz; nz = sx; const l = Math.hypot(nx, nz); nx /= l; nz /= l; } else { nx = qx / d; nz = qz / d; }
       } else {
         const d = Math.hypot(ux, uz);
         if (c.k === 'ring') {

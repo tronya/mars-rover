@@ -548,8 +548,9 @@ function buildBridge(g, b) {
   }
 }
 
-// Merge a built group into one mesh per material, world-placed.
-function bake(src) {
+// Merge a built group into one mesh per material, world-placed. base.js bakes its
+// bases the same way, with its own set of materials that cast no shadow.
+export function bake(src, noShadow = NO_SHADOW) {
   src.updateMatrixWorld(true);
   const byMat = new Map();
   src.traverse((o) => {
@@ -566,7 +567,7 @@ function bake(src) {
   const out = new THREE.Group();
   for (const [mat, list] of byMat) {
     const m = new THREE.Mesh(mergeGeometries(list, false), mat);
-    m.castShadow = !NO_SHADOW.has(mat) && !mat.wireframe;
+    m.castShadow = !noShadow.has(mat) && !mat.wireframe;
     m.receiveShadow = true;
     out.add(m);
   }

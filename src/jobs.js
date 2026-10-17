@@ -222,7 +222,8 @@ export function createJobs() {
         const plaza = { x: lm.x, z: lm.z, r: 26, label: 'площі поселення «Обрій»' };
         const base = BASES[Math.floor(rand() * BASES.length)];
         if (rand() < 0.5) {
-          const p0 = { x: base.x + 30, z: base.z + 18 };
+          // On the base's cargo pad, which base-layout.js keeps clear of the buildings.
+          const p0 = base.cargo;
           return {
             title: `Доставка в «Обрій» з бази ${base.name}`,
             brief: [[DISPATCH, `Поселенню «Обрій» бракує медикаментів і фільтрів. Два ящики чекають на базі ${base.name} — забери й відвези на площу поселення.`]],
