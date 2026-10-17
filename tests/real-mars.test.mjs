@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 if (process.env.TEST_PLANET && process.env.TEST_PLANET !== 'mars') process.exit(0);
 if (process.env.TEST_REGION === 'classic') process.exit(0); // nothing real to test there
 const { REAL, REAL_PLACES } = await import('../src/real-mars.js');
-const { terrainHeight, groundHeight, ROUTE_PTS, ROUTE_LEN, BASES, roadDist } = await import('../src/terrain.js');
+const { terrainHeight, groundHeight, smallCraters, ROUTE_PTS, ROUTE_LEN, BASES, roadDist } = await import('../src/terrain.js');
 
 test('the real map loaded', () => {
   assert.ok(REAL, 'REAL is null: textures/mars/jezero-height.bin missing?');
@@ -84,7 +84,8 @@ test('steep ground is broken up, flat ground and the road are not', () => {
     for (let x = -REAL.halfW + 2200; x < REAL.halfW - 2200 && n < 400; x += 211) for (let z = -REAL.halfH + 2200; z < REAL.halfH - 2200 && n < 400; z += 197) {
       if (roadDist(x, z) < 400 || !pick(REAL.slope(x, z))) continue;
       // deviation of the game ground from the smooth DTM, minus the small-noise layers' own size
-      const d = terrainHeight(x, z) - (REAL.height(x, z) - REAL.ref);
+      // flat ground also carries the small craters (exactly, off the road on a <8% slope): take them out
+      const d = terrainHeight(x, z) - (REAL.height(x, z) - REAL.ref) - (REAL.slope(x, z) < 0.08 ? smallCraters(x, z) : 0);
       sum += d * d; n++;
     }
     return { rms: Math.sqrt(sum / Math.max(n, 1)), n };
@@ -150,4 +151,26 @@ test('named places: on the map, clear of the bases, each with a name, a letter a
     letters.add(p.letter);
   }
   for (const b of BASES) assert.ok(!letters.has(b.name[0]), `a place uses the letter of ${b.name}`);
+});
+
+test('small craters: many, mostly small, none on the road or the base pads', () => {
+  let n = 0, deep = 0, rimUp = 0, onRoad = 0, roadN = 0, minD = 0;
+  for (let x = -9000; x < 9000; x += 9) for (let z = -3000; z < 3000; z += 9) {
+    const c = smallCraters(x, z);
+    n++;
+    if (c < -0.3) deep++;
+    if (c > 0.05) rimUp++;
+    minD = Math.min(minD, c);
+  }
+  // (the last stretch into a base blends to the pad's own level, so skip the pads' skirts)
+  for (const p of ROUTE_PTS) { if (BASES.some((b) => Math.hypot(p.x - b.x, p.z - b.z) < 170)) continue; roadN++; if (Math.abs(terrainHeight(p.x, p.z) - p.e) > 0.6) onRoad++; }
+  assert.ok(roadN > 300);
+  console.log(`  small craters: ${(100 * deep / n).toFixed(1)} % of ground is bowl deeper than 0.3 m, ${(100 * rimUp / n).toFixed(1)} % rim, deepest ${minD.toFixed(1)} m`);
+  assert.ok(deep / n > 0.01 && deep / n < 0.3, 'crater coverage out of range');
+  assert.ok(rimUp > 0, 'no rims');
+  assert.ok(minD > -6, 'a crater is deeper than a small crater should be');
+  assert.equal(onRoad, 0, 'the road follows crater bowls');
+  for (const b of BASES) for (const [dx, dz] of [[20, 0], [-20, 0], [0, 20], [0, -20]]) {
+    assert.ok(Math.abs(terrainHeight(b.x + dx, b.z + dz) - terrainHeight(b.x, b.z)) < 1.2, `${b.name} pad is cratered`);
+  }
 });

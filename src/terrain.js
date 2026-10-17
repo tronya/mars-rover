@@ -699,6 +699,33 @@ function verdantaHeight(x, z) {
 // Real Mars: the DTM is the ground. Along the road it is graded to the road's own
 // profile; far off it, the land is as measured. Small noise on top because 20 m pixels
 // say nothing about what a wheel feels.
+// Craters the DTM cannot show: 5-40 m across, the many small ones that outnumber the big
+// (a power-law of sizes), one candidate per 64 m cell, each at a hashed spot. Fresh bowls
+// with a low raised rim. Returns the height they add at (x, z), metres (negative inside).
+const SC_CELL = 64;
+const SC_RMAX = 20;
+export function smallCraters(x, z) {
+  const ci = Math.floor(x / SC_CELL), cj = Math.floor(z / SC_CELL);
+  const fx = x / SC_CELL - ci, fz = z / SC_CELL - cj;
+  const m = (SC_RMAX * 1.4) / SC_CELL; // how far a crater's skirt reaches into the next cell, as a fraction
+  let bowl = 0, rim = 0; // the deepest bowl wins where two overlap; rims add
+  for (let j = fz < m ? -1 : 0; j <= (fz > 1 - m ? 1 : 0); j++) for (let i = fx < m ? -1 : 0; i <= (fx > 1 - m ? 1 : 0); i++) {
+    const a = ci + i, b = cj + j;
+    for (let n = 0; n < 2; n++) { // two candidates per cell
+      if (hash(a * 1.7 + 13.1 + n * 40, b * 2.3 + 5.7 - n * 17) > 0.85) continue;
+      const u = hash(a + 71 + n * 9, b + 29);
+      const r = Math.min(SC_RMAX, 2.5 / Math.pow(1 - u * 0.97, 1 / 1.8)); // radius 2.5 m and up, mostly small
+      const cx = (a + 0.2 + 0.6 * hash(a + 3 + n, b + 91)) * SC_CELL, cz = (b + 0.2 + 0.6 * hash(a + 57, b + 13 + n)) * SC_CELL;
+      const t = Math.hypot(x - cx, z - cz) / r;
+      if (t > 1.7) continue;
+      const depth = 0.24 * r;
+      if (t < 1) bowl = Math.min(bowl, -depth * (1 - t * t) * (1 - 0.25 * t * t));
+      else rim += depth * 0.14 * Math.exp(-(((t - 1.08) / 0.3) ** 2));
+    }
+  }
+  return bowl + rim;
+}
+
 function realMarsHeight(x, z) {
   const rd = roadDist(x, z);
   const rough = smooth(ROAD_HALF + 14, ROAD_HALF + 170, rd);
@@ -719,11 +746,15 @@ function realMarsHeight(x, z) {
   // The DTM is 20-30 m per pixel: smooth where the real ground is rough, which is on steep
   // faces (rims, scarps). Broken-up rock there, in metres, growing with the slope and
   // gone on the road and the base pads.
-  const steep = smooth(0.1, 0.4, REAL.slope(x, z));
+  const slope = REAL.slope(x, z);
+  // small craters only on open, gentle ground well off the road and the base pads
+  const open = (1 - smooth(0.08, 0.2, slope)) * smooth(0.3, 0.9, rough);
+  const bowls = open > 0 ? smallCraters(x, z) * open : 0;
+  const steep = smooth(0.1, 0.4, slope);
   const crag = steep > 0
     ? ((fbm(x * 0.11 + 70, z * 0.11 - 30, 3) - 0.44) * 8 + (vnoise(x * 0.45 + 5, z * 0.45 + 9) - 0.5) * 2) * steep * rough
     : 0;
-  return h + (mid + bumpy + small + crag) * k;
+  return h + (mid + bumpy + small + crag + bowls) * k;
 }
 
 function rawTerrainHeight(x, z) {
