@@ -1201,6 +1201,23 @@ const minimap = createMinimap3D(
   ]
 );
 
+// What has been explored, saved per region (a map of another shape is simply dropped).
+const EXPLORED_KEY = `rover.explored.${REAL ? REAL.region : PLANET}`;
+try { minimap.importExplored(localStorage.getItem(EXPLORED_KEY)); } catch (e) { /* storage may be blocked */ }
+const exploredState = { next: 0, saveAt: 0, text: '' };
+const hudExplored = document.getElementById('exploredStat');
+function stepExplored(t) {
+  if (t < exploredState.next) return;
+  exploredState.next = t + 0.5;
+  minimap.reveal(sim.pos.x, sim.pos.z);
+  const text = `${(minimap.exploredFraction() * 100).toFixed(1)}%`;
+  if (text !== exploredState.text) { exploredState.text = text; hudExplored.textContent = text; }
+  if (t > exploredState.saveAt) {
+    exploredState.saveAt = t + 10;
+    try { localStorage.setItem(EXPLORED_KEY, minimap.exportExplored()); } catch (e) { /* storage may be blocked */ }
+  }
+}
+
 function updateRouteInfo() {
   routeInfo.textContent = route.length
     ? `Маршрут: ${route.length} ${route.length === 1 ? 'точка' : 'точок'}`
@@ -2149,6 +2166,7 @@ function frame() {
   }
   drawCompass(sim.yaw(), compassTargets);
   minimap.setDynamic(jobs.targets());
+  stepExplored(t);
   if (!map3dEl.classList.contains('hidden')) minimap.update(sim, dt);
   sunShadows.update();
   if ((tagClock += dt) > 0.5) { tagClock = 0; tagLayers(scene); }

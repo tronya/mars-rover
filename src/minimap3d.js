@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { REAL } from './real-mars.js';
 import { slopeRedness } from './passability.js';
+import { createExplored } from './explored.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { terrainHeight, ROUTE_PTS, ROUTE_BOUNDS, BASES } from './terrain.js';
 import { PLANET } from './planet.js';
@@ -104,6 +105,29 @@ export function createMinimap3D(canvas, overlay, missionModules = [], extraSites
     col[i * 3 + 1] = cc.g;
     col[i * 3 + 2] = cc.b;
   }
+  // Fog of discovery: ground the rover has not been near is dimmed (never hidden: you still
+  // plan waypoints on it). `baseCol` keeps the true colours to bring back as it is explored.
+  const baseCol = Float32Array.from(col);
+  const UNSEEN = 0.42;
+  const EXPLORE_STEP = 45;
+  const exNx = Math.ceil(spanX / EXPLORE_STEP) + 1, exNz = Math.ceil(spanZ / EXPLORE_STEP) + 1;
+  const exX0 = center.x - spanX / 2, exZ0 = center.z - spanZ / 2;
+  const explored = createExplored(exNx, exNz, exX0, exZ0, EXPLORE_STEP);
+  const exIndex = (i) => {
+    const gi = Math.min(exNx - 1, Math.max(0, Math.round((pos.getX(i) - exX0) / EXPLORE_STEP)));
+    const gj = Math.min(exNz - 1, Math.max(0, Math.round((pos.getZ(i) - exZ0) / EXPLORE_STEP)));
+    return gj * exNx + gi;
+  };
+  const vertexExIndex = new Int32Array(pos.count);
+  for (let i = 0; i < pos.count; i++) vertexExIndex[i] = exIndex(i);
+  const paint = (isSeen) => {
+    for (let i = 0; i < pos.count; i++) {
+      const k = isSeen ? 1 : UNSEEN;
+      if (isSeen && !explored.has(vertexExIndex[i])) continue;
+      col[i * 3] = baseCol[i * 3] * k; col[i * 3 + 1] = baseCol[i * 3 + 1] * k; col[i * 3 + 2] = baseCol[i * 3 + 2] * k;
+    }
+  };
+  paint(false);
   geo.computeVertexNormals();
   geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
   const mesh = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ vertexColors: true }));
@@ -419,9 +443,31 @@ export function createMinimap3D(canvas, overlay, missionModules = [], extraSites
     drawOverlay(sim);
   }
 
+  // Called a couple of times a second with where the rover is: reveals the ground around it.
+  function reveal(x, z, r = 450) {
+    const fresh = explored.mark(x, z, r);
+    if (!fresh.length) return;
+    const set = new Set(fresh);
+    for (let i = 0; i < pos.count; i++) {
+      if (!set.has(vertexExIndex[i])) continue;
+      col[i * 3] = baseCol[i * 3]; col[i * 3 + 1] = baseCol[i * 3 + 1]; col[i * 3 + 2] = baseCol[i * 3 + 2];
+    }
+    geo.attributes.color.needsUpdate = true;
+  }
+
   return {
     update,
     setRoute,
+    reveal,
+    exploredFraction: () => explored.fraction(),
+    exportExplored: () => explored.encode(),
+    importExplored(str) {
+      if (explored.decode(str) === null) return false;
+      paint(false);
+      paint(true);
+      geo.attributes.color.needsUpdate = true;
+      return true;
+    },
     setDynamic(list) {
       dynamic = list;
     },
