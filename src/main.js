@@ -37,6 +37,7 @@ import { createMinimap3D } from './minimap3d.js';
 import { createSkyMaterial, updateSky, horizonColor, planetOrbit, marsMoons } from './sky.js';
 import { REAL, REAL_PLACES } from './real-mars.js';
 import { fogAltitudeScale } from './atmosphere.js';
+import { recordLeg, bestOf, fmtTime } from './records.js';
 import { formatAltitude, formatTilt, pitchRollDeg } from './attitude.js';
 import { createWeather, WEATHER_TEXT } from './weather.js';
 
@@ -1079,6 +1080,12 @@ function stepOdometer(t) {
 
 // ---------- the crossing ----------
 const trip = { target: BASES[1], docked: false, legs: 0, best: Infinity };
+// The timed leg: the clock runs from the moment you leave a base until you dock at the other.
+// A teleport (the H key, or anything else that jumps the rover) voids the leg.
+const leg = { t: 0, valid: false, last: null };
+const legKey = (from, to) => ({ region: REAL ? REAL.region : PLANET, chassis: CHASSIS, from: from.name, to: to.name });
+const hudBest = document.getElementById('bestStat');
+let shownBest = '';
 
 function distanceTo(b) {
   return Math.hypot(sim.pos.x - b.x, sim.pos.z - b.z);
@@ -1867,10 +1874,23 @@ function frame() {
   // even though the HUD no longer shows a running bearing to it.
   const dist = distanceTo(trip.target);
   const other = trip.target === BASES[0] ? BASES[1] : BASES[0];
+  // timing: runs once clear of the base you left; a jump of the rover voids it
+  if (leg.last && Math.hypot(sim.pos.x - leg.last.x, sim.pos.z - leg.last.z) > 120) leg.valid = false;
+  leg.last = { x: sim.pos.x, z: sim.pos.z };
+  if (distanceTo(other) < ARRIVE_R * 1.6) { leg.t = 0; leg.valid = true; } else if (leg.valid) leg.t += dt;
+  const bestNow = bestOf(legKey(other, trip.target));
+  const bestText = `${bestNow === null ? '–' : fmtTime(bestNow)} · ${leg.valid && leg.t > 0 ? fmtTime(leg.t) : '0:00'}`;
+  if (bestText !== shownBest) { shownBest = bestText; hudBest.textContent = bestText; }
   if (dist < ARRIVE_R && !trip.docked) {
     trip.docked = true;
     trip.legs++;
-    flash(`Прибув на ${trip.target.name}. Наступна ціль: ${other.name}`);
+    let timeNote = '';
+    if (leg.valid) {
+      const r = recordLeg(legKey(other, trip.target), leg.t);
+      if (r.counted) timeNote = r.isNew ? ` · ${fmtTime(leg.t)}, новий рекорд!` : ` · ${fmtTime(leg.t)} (рекорд ${fmtTime(r.best)})`;
+    }
+    leg.valid = false;
+    flash(`Прибув на ${trip.target.name}${timeNote}. Наступна ціль: ${other.name}`);
     if (audio) { audio.beep(880); setTimeout(() => audio.beep(1180), 130); audio.speak(`Прибули на базу ${trip.target.name}`); }
     trip.target = other;
   } else if (dist > ARRIVE_R * 1.6) {
