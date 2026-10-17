@@ -5,6 +5,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 if (process.env.TEST_PLANET && process.env.TEST_PLANET !== 'mars') process.exit(0);
+if (process.env.TEST_REGION === 'classic') process.exit(0); // nothing real to test there
 const { REAL } = await import('../src/real-mars.js');
 const { terrainHeight, ROUTE_PTS, ROUTE_LEN, BASES, roadDist } = await import('../src/terrain.js');
 

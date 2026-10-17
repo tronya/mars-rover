@@ -753,6 +753,18 @@ for (const p of ['classic', 'rapier']) {
     location.reload();
   });
 }
+// Region switch (Mars only — the Moon and Верданта have their own ground): the real Jezero
+// DTM or the original procedural world. Read by real-mars.js at load, so it reloads.
+for (const r of ['jezero', 'classic']) {
+  const btn = document.getElementById(`region-${r}`);
+  btn.classList.toggle('on', (REAL ? 'jezero' : 'classic') === r);
+  btn.disabled = PLANET !== 'mars';
+  btn.addEventListener('click', () => {
+    try { localStorage.setItem('rover.region', r); } catch (e) { /* storage may be blocked */ }
+    location.search = '';
+    location.reload();
+  });
+}
 document.getElementById('startTag').textContent = SPEC.tag;
 
 // ---------- main menu ----------

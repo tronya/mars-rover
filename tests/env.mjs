@@ -13,6 +13,7 @@ const ctx = new Proxy({}, {
 const store = new Map();
 if (process.env.TEST_CHASSIS) store.set('rover.chassis', process.env.TEST_CHASSIS);
 if (process.env.TEST_PLANET) store.set('rover.planet', process.env.TEST_PLANET);
+if (process.env.TEST_REGION) store.set('rover.region', process.env.TEST_REGION); // 'classic' = the procedural Mars
 globalThis.localStorage = {
   getItem: (k) => (store.has(k) ? store.get(k) : null),
   setItem: (k, v) => store.set(k, String(v)),
