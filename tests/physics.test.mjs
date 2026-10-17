@@ -9,14 +9,16 @@ import assert from 'node:assert/strict';
 
 const { VehicleSim } = await import('../src/physics.js');
 const { createRapierSim } = await import('../src/rapier-sim.js');
-const { groundHeight } = await import('../src/terrain.js');
+const { groundHeight, roadSpawn } = await import('../src/terrain.js');
+// Tests start where the road is graded: the map's middle (0, 0) is steep rock on real Gale.
+const START = roadSpawn(false); // heading: along the road, so a test that drives straight stays clear of the base
 
 const DT = 1 / 60;
 function run(sim, seconds, input) {
   for (let t = 0; t < seconds; t += DT) sim.update(DT, typeof input === 'function' ? input(t) : input);
 }
 const IDLE = { throttle: 0, steer: 0, brake: 0 };
-async function both(x = 0, z = 0, heading = 0) {
+async function both(x = START.x, z = START.z, heading = START.yaw) {
   const a = new VehicleSim();
   a.reset(x, z, heading);
   const b = await createRapierSim();
@@ -183,9 +185,9 @@ test('wheels turn with the ground speed and stop when the rover stops', async ()
 });
 
 test('rides rough ground at least as smoothly as the old sim, and stays on its wheels', async () => {
-  const { ride, classic, rapier } = await import('./ride.mjs');
+  const { ride, classic, rapier, RIDE_ROUTES } = await import('./ride.mjs');
   const { SPEC } = await import('../src/chassis.js');
-  const routes = [[0.4, 900, 400], [2.0, -700, 1200], [4.2, 1500, -900]];
+  const routes = RIDE_ROUTES;
   const sum = async (make) => {
     const rs = [];
     for (const [h, x, z] of routes) rs.push(await ride(make, 25, h, x, z));

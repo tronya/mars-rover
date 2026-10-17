@@ -27,6 +27,22 @@ export async function ride(make, seconds = 25, heading = 0.4, x = 0, z = 0) {
   }
   return { rms: Math.sqrt(sum / n), peak, jolts: (jolts / n) * 60, air: air / wheelsN, speed: s.speed * 3.6, upright: s.upY > 0.5 };
 }
+// Three open, rough-but-drivable spots to ride out from. The classic Mars has fixed ones;
+// on real terrain they are found: well off the road, a gentle-to-moderate slope (steep
+// faces are climbing, not riding), the first three spots found on a coarse scan.
+const { REAL } = await import('../src/real-mars.js');
+const { roadDist } = await import('../src/terrain.js');
+export const RIDE_ROUTES = (() => {
+  if (!REAL) return [[0.4, 900, 400], [2.0, -700, 1200], [4.2, 1500, -900]];
+  const out = [];
+  for (let x = -REAL.halfW + 2500; x < REAL.halfW - 2500 && out.length < 3; x += 400) {
+    for (let z = -REAL.halfH + 2500; z < REAL.halfH - 2500 && out.length < 3; z += 400) {
+      const sl = REAL.slope(x, z);
+      if (roadDist(x, z) > 300 && roadDist(x, z) < 1500 && sl > 0.04 && sl < 0.12) out.push([[0.4, 2.0, 4.2][out.length], x, z]);
+    }
+  }
+  return out;
+})();
 export const classic = async () => new VehicleSim();
 export const rapier = () => createRapierSim();
 
@@ -35,7 +51,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     // Three routes out of the same spot, so one lucky or unlucky bump doesn't decide it.
     const rs = [];
     // Open ground away from the bases, so a crash into a building doesn't count as ride.
-    for (const [h, x, z] of [[0.4, 900, 400], [2.0, -700, 1200], [4.2, 1500, -900]]) rs.push(await ride(make, 25, h, x, z));
+    for (const [h, x, z] of RIDE_ROUTES) rs.push(await ride(make, 25, h, x, z));
     const avg = (k) => rs.reduce((a, r) => a + r[k], 0) / rs.length;
     console.log(`${name.padEnd(8)} vertical accel RMS ${avg('rms').toFixed(2)} g, jolts over 2 g ${avg("jolts").toFixed(2)}/s, worst peak ${Math.max(...rs.map((r) => r.peak)).toFixed(1)} g, wheels in the air ${(avg('air') * 100).toFixed(0)} %, end ${rs.map((r) => `${r.speed.toFixed(0)}${r.upright ? '' : '↯'}`).join('/')} km/h`);
   }
