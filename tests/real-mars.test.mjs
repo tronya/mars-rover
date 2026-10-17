@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 if (process.env.TEST_PLANET && process.env.TEST_PLANET !== 'mars') process.exit(0);
 if (process.env.TEST_REGION === 'classic') process.exit(0); // nothing real to test there
 const { REAL } = await import('../src/real-mars.js');
-const { terrainHeight, ROUTE_PTS, ROUTE_LEN, BASES, roadDist } = await import('../src/terrain.js');
+const { terrainHeight, groundHeight, ROUTE_PTS, ROUTE_LEN, BASES, roadDist } = await import('../src/terrain.js');
 
 test('the real map loaded', () => {
   assert.ok(REAL, 'REAL is null: textures/mars/jezero-height.bin missing?');
@@ -101,4 +101,40 @@ test('the road surface does not follow the crag noise', () => {
     const p = ROUTE_PTS[i];
     assert.ok(Math.abs(terrainHeight(p.x, p.z) - p.e) < 0.6, `road point ${i}: ${terrainHeight(p.x, p.z)} vs ${p.e}`);
   }
+});
+
+test('no boulder stands on the road strip', () => {
+  let tallest = 0, at = null;
+  for (let i = 0; i < ROUTE_PTS.length - 1; i++) {
+    const a = ROUTE_PTS[i], b = ROUTE_PTS[i + 1];
+    const len = Math.hypot(b.x - a.x, b.z - a.z);
+    if (len < 1) continue;
+    // skip the base pads: the bases clear their own ground
+    if (BASES.some((base) => Math.hypot(a.x - base.x, a.z - base.z) < 120)) continue;
+    for (let d = 0; d < len; d += 2) {
+      const x = a.x + (b.x - a.x) * d / len, z = a.z + (b.z - a.z) * d / len;
+      for (const o of [-8, -4, 0, 4, 8]) {
+        const rise = groundHeight(x + o, z) - terrainHeight(x + o, z);
+        if (rise > tallest) { tallest = rise; at = [Math.round(x + o), Math.round(z)]; }
+      }
+    }
+  }
+  console.log(`  tallest rock on the road strip: ${tallest.toFixed(2)} m at ${at}`);
+  assert.ok(tallest < 0.7, `a ${tallest.toFixed(2)} m rock sits on the road at ${at}`);
+});
+
+test('rubble gathers on slopes, flats are clearer', () => {
+  const count = (pick) => {
+    let rocks = 0, n = 0;
+    for (let x = -REAL.halfW + 2200; x < REAL.halfW - 2200 && n < 1500; x += 37) for (let z = -REAL.halfH + 2200; z < REAL.halfH - 2200 && n < 1500; z += 41) {
+      if (roadDist(x, z) < 400 || !pick(REAL.slope(x, z))) continue;
+      n++;
+      if (groundHeight(x, z) - terrainHeight(x, z) > 0.15) rocks++;
+    }
+    return { share: rocks / Math.max(n, 1), n };
+  };
+  const steep = count((s) => s > 0.25), flat = count((s) => s < 0.1);
+  console.log(`  ground covered by a rock: steep ${(steep.share * 100).toFixed(1)} % (${steep.n} pts), flat ${(flat.share * 100).toFixed(1)} % (${flat.n} pts)`);
+  assert.ok(steep.n >= 200 && flat.n >= 200, 'not enough sample points');
+  assert.ok(steep.share > flat.share, 'slopes are not stonier than flats');
 });
