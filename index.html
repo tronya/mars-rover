@@ -270,7 +270,7 @@
         <span id="jobClock"></span>
       </div>
     </div>
-    <div id="debugBar" class="panel"><span id="dbgFps">60 FPS</span><span id="dbgMs">· 16.7 мс/кадр</span><span id="version">v2.82 · мінікарта показує труднопрохідні схили червоним; кольори висоти по всьому діапазону</span></div>
+    <div id="debugBar" class="panel"><span id="dbgFps">60 FPS</span><span id="dbgMs">· 16.7 мс/кадр</span><span id="version">v2.83 · висотомір (над нулем Марса) і нахил з креном у телеметрії</span></div>
   </div>
     <div id="comms" class="panel"><span id="commsFrom"></span><span id="commsText"></span><span id="commsMore"></span></div>
   <div id="compass" class="panel"><canvas id="compassCanvas" width="560" height="70"></canvas></div>
@@ -289,6 +289,8 @@
     <div id="speed">0 км/год</div>
     <div id="mode"></div>
     <hr>
+    <div class="row" id="altRow" hidden><span>ВИСОТА</span><b id="altStat">0 м</b></div>
+    <div class="row" id="tiltRow" hidden><span>НАХИЛ · КРЕН</span><b id="tiltStat">0°</b></div>
     <div class="row"><span>БАТАРЕЯ</span><b id="battery">100%</b></div>
     <div class="gauge"><i id="batteryBar"></i></div>
     <div class="row"><span>ЗАПАС ХОДУ</span><b id="rangeLeft">~0 км</b></div>

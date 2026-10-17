@@ -37,6 +37,7 @@ import { createMinimap3D } from './minimap3d.js';
 import { createSkyMaterial, updateSky, horizonColor, planetOrbit, marsMoons } from './sky.js';
 import { REAL, REAL_PLACES } from './real-mars.js';
 import { fogAltitudeScale } from './atmosphere.js';
+import { formatAltitude, formatTilt, pitchRollDeg } from './attitude.js';
 import { createWeather, WEATHER_TEXT } from './weather.js';
 
 const ARRIVE_R = 70; // how close counts as docked at a base
@@ -921,6 +922,11 @@ window.addEventListener('blur', () => keys.clear());
 const odo = { trip: 0, total: 0, last: null, savedAt: 0 };
 try { odo.total = Number(localStorage.getItem('rover.odo')) || 0; } catch (e) { /* storage may be blocked */ }
 const hudOdoTrip = document.getElementById('odoTrip');
+const hudAlt = document.getElementById('altStat');
+const hudTilt = document.getElementById('tiltStat');
+const attFwd = new THREE.Vector3();
+const attRight = new THREE.Vector3();
+if (REAL) { document.getElementById('altRow').hidden = false; document.getElementById('tiltRow').hidden = false; }
 const hudRange = document.getElementById('rangeLeft');
 const hudOdoTotal = document.getElementById('odoTotal');
 const hudMissions = document.getElementById('missionStat');
@@ -1814,6 +1820,14 @@ function frame() {
 
   const pct = (power.battery / BATTERY_MAX) * 100;
   hudRange.textContent = `~${((RANGE_KM / drawMul) * pct / 100).toFixed(1)} км`;
+  if (REAL) {
+    // real height above Mars's own zero, and how the rover sits (pitch, roll)
+    attFwd.set(0, 0, 1).applyQuaternion(sim.quat);
+    attRight.set(-1, 0, 0).applyQuaternion(sim.quat);
+    const pr = pitchRollDeg(attFwd.y, attRight.y);
+    hudAlt.textContent = formatAltitude(sim.pos.y + REAL.ref);
+    hudTilt.textContent = formatTilt(pr.pitch, pr.roll);
+  }
   hudBatteryBar.style.width = `${pct}%`;
   hudBatteryBar.style.background = pct < LOW_BATTERY ? '#ff4530' : power.charge > power.draw ? '#4fe06a' : '#ff9420';
   hudBattery.textContent = `${pct.toFixed(0)}%`;

@@ -222,3 +222,19 @@ test('passability map: red on steep ground, none on the road grade', async () =>
   console.log(`  ${(100 * marked / n).toFixed(1)} % of the map reads as hard going`);
   assert.ok(marked / n > 0.005 && marked / n < 0.6, 'marked share out of range');
 });
+
+test('HUD attitude: altitude and tilt read right', async () => {
+  const { formatAltitude, formatTilt, pitchRollDeg } = await import('../src/attitude.js');
+  assert.equal(formatAltitude(-2643.4), '\u22122\u202f643 м');
+  assert.equal(formatAltitude(0), '0 м');
+  assert.equal(formatAltitude(487.6), '488 м');
+  assert.equal(formatTilt(0, 0), '0° · 0°');
+  assert.equal(formatTilt(4.2, -2.6), '↗ 4° · ⟲ 3°');
+  assert.equal(formatTilt(-12, 7), '↘ 12° · ⟳ 7°');
+  const level = pitchRollDeg(0, 0);
+  assert.equal(level.pitch, 0);
+  assert.ok(Math.abs(pitchRollDeg(Math.sin(Math.PI / 12), 0).pitch - 15) < 1e-9, 'a 15 degree nose-up');
+  assert.ok(pitchRollDeg(0, -0.2).roll > 0, 'right side down is positive roll');
+  // and the HUD's zero: the base sits at REAL.ref metres on the real map
+  assert.ok(Number.isFinite(REAL.ref) && REAL.ref < 0, 'both real regions are below the datum');
+});
