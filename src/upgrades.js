@@ -114,7 +114,7 @@ export function createUpgrades(debris, missions) {
   };
   // Scrap found on the map, modules delivered, plus whatever the campaign has handed
   // out for story beats (see progress.js — the Moon flashback pays out this way).
-  const currency = () => debris.collectedCount() + missions.deliveredCount() * MODULE_VALUE + progress.bonusScrap - spent();
+  const currency = () => debris.collectedCount() + missions.deliveredCount() * MODULE_VALUE + progress.bonusScrap + (state.gift || 0) - spent();
   const nextCost = (id) => {
     const b = BY_ID[id];
     const lv = level(id);
@@ -152,5 +152,16 @@ export function createUpgrades(debris, missions) {
     return true;
   };
 
-  return { level, mul, unlocked, currency, nextCost, canBuy, buy, nearWorkshop, owns, missing, ownsVehicle, canBuyVehicle, buyVehicle };
+  // Every upgrade at its top level and every vehicle in the garage, free: the full build,
+  // for trying the whole game (or a late-game ride) without earning it first.
+  // `gift` covers what the build would have cost, so the scrap you actually earned stays put.
+  const maxOut = () => {
+    const before = currency();
+    for (const b of BRANCHES) state.levels[b.id] = b.costs.length;
+    for (const id of Object.keys(VEHICLE_PRICES)) if (!(id in state.vehicles)) state.vehicles[id] = 0;
+    state.gift = (state.gift || 0) + (before - currency());
+    saveState(state);
+  };
+
+  return { level, mul, unlocked, currency, nextCost, canBuy, buy, nearWorkshop, owns, missing, ownsVehicle, canBuyVehicle, buyVehicle, maxOut };
 }
