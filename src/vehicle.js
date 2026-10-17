@@ -145,6 +145,15 @@ export function vehicleKit(id) {
   varying float vDirtLow;
   varying float vDirtUp;
   float dHash( vec3 p ) { return fract( sin( dot( p, vec3( 12.9898, 78.233, 37.719 ) ) ) * 43758.5453 ); }
+  // Three octaves, each turned and shifted against the last: stacked on the same axes the
+  // value-noise lattice showed through as a coat of square blocks ("digital camo").
+  const mat3 dRot = mat3( 0.00, 0.80, 0.60, -0.80, 0.36, -0.48, -0.60, -0.48, 0.64 );
+  float dNoise( vec3 p );
+  float dFbm( vec3 p ) {
+    float a = 0.5; float s = 0.0;
+    for ( int i = 0; i < 3; i ++ ) { s += a * dNoise( p ); p = dRot * p * 3.0 + vec3( 1.7, 9.2, 3.1 ); a *= 0.5; }
+    return s / 0.875;
+  }
   float dNoise( vec3 p ) {
     vec3 i = floor( p ); vec3 f = fract( p ); f = f * f * ( 3.0 - 2.0 * f );
     return mix( mix( mix( dHash( i ), dHash( i + vec3( 1, 0, 0 ) ), f.x ), mix( dHash( i + vec3( 0, 1, 0 ) ), dHash( i + vec3( 1, 1, 0 ) ), f.x ), f.y ),
@@ -153,7 +162,7 @@ export function vehicleKit(id) {
         .replace('#include <map_fragment>', `#include <map_fragment>
           float dirtK = 0.0;
           if ( dirtAmt > 0.001 ) {
-            float n = dNoise( vDirtP * 1.3 ) * 0.5 + dNoise( vDirtP * 4.5 ) * 0.3 + dNoise( vDirtP * 17.0 ) * 0.2;
+            float n = dFbm( vDirtP * 1.3 );
             float where = vDirtLow * 0.8 + max( vDirtUp, 0.0 ) * 0.25 + 0.05;
             float cover = dirtAmt * where;
             float film = cover * 0.45;                                        // a fine even coat

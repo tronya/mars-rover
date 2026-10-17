@@ -88,6 +88,7 @@ export function createSkyMaterial() {
     fog: false,
     uniforms: {
       sunDir: { value: new THREE.Vector3(0, 1, 0) },
+      blueHalo: { value: 0 },
       horizon: { value: new THREE.Color() },
       zenith: { value: new THREE.Color() },
       ground: { value: new THREE.Color() },
@@ -129,6 +130,7 @@ export function createSkyMaterial() {
     `,
     fragmentShader: /* glsl */ `
       uniform vec3 sunDir;
+      uniform float blueHalo;
       uniform vec3 horizon;
       uniform vec3 zenith;
       uniform vec3 ground;
@@ -271,6 +273,11 @@ export function createSkyMaterial() {
         float s = max(dot(d, sunDir), 0.0);
         col += tint * (pow(s, 6.0) * glow + pow(s, 60.0) * core);
         col += mix(vec3(1.0, 0.95, 0.85), tint, 0.5) * smoothstep(discA, discB, s) * disc;
+        // Mars at dusk: dust scatters blue forward, so the sky round a low sun goes blue while
+        // the rest stays butterscotch. A ring from ~3 degrees out, fading wide.
+        // Mixed in, not added: the sky beside a low sun is already near white, and adding blue
+        // to white only clips.
+        col = mix(col, vec3(0.34, 0.52, 0.92) * (0.7 + 0.45 * pow(s, 24.0)), clamp(blueHalo * pow(s, 5.0) * 1.25, 0.0, 0.92) * (1.0 - smoothstep(0.9985, 0.99995, s)));
 
         // A small ringed world, fixed in the dome (see planetOrbit in sky.js),
         // drawn as a lit sphere rather than a flat disc: (u, v) plus the implied depth
@@ -374,6 +381,8 @@ export function updateSky(material, sunDir, daylight, planet) {
   // No air to fade the stars out behind a lit sky, so on the Moon they never dim.
   u.stars.value = PLANET === 'moon' ? 1 : 1 - Math.min(1, daylight * 1.6);
   u.glow.value = n.glow + (d.glow - n.glow) * daylight;
+  // The blue sunset halo (see the shader): only on Mars, only with the sun low and not yet set.
+  u.blueHalo.value = PLANET === 'mars' ? 0.9 * Math.max(0, 1 - sunDir.y / 0.32) * Math.min(1, Math.max(0, (sunDir.y + 0.1) / 0.1)) : 0;
   u.core.value = n.core + (d.core - n.core) * daylight;
   u.discA.value = n.discA + (d.discA - n.discA) * daylight;
   u.discB.value = n.discB + (d.discB - n.discB) * daylight;
