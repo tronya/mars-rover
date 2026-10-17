@@ -136,7 +136,10 @@
       "title": "Звіт бота як сторінка",
       "goal": "tools/playbot-report.mjs: запускає playbot для всіх шасі й регіонів, пише pipeline/playbot-report.html з таблицею.",
       "accept": "Скрипт створює HTML з усіма 12 рядками; verify зелений.",
-      "status": "todo"
+      "status": "done",
+      "started": "2026-10-17T18:17:30.096Z",
+      "finished": "2026-10-17T18:19:40.372Z",
+      "note": "tools/playbot-report.mjs: 12 з 12 доїхали, звіт pipeline/playbot-report.html (1 хв 45 с паралельно)"
     }
   ]
 }
