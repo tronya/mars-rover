@@ -8,7 +8,7 @@ import { createAmbient } from './ambient.js';
 import { createBeams } from './beams.js';
 import { CHASSIS, SPEC, CHASSIS_LIST, WHEEL_DEFS, setChassis } from './chassis.js';
 import { VehicleSim, HoverSim, PLANET } from './physics.js';
-import { createTerrain, groundHeight, terrainHeight, BASES, roadSpawn, setViewScale, waterDepthAt, getSettlement, roadDist, ROAD_HALF, deckHeight, ROUTE_LEN, dustDepth } from './terrain.js';
+import { createTerrain, groundHeight, terrainHeight, BASES, roadSpawn, setViewScale, waterDepthAt, getSettlement, roadDist, ROAD_HALF, deckHeight, ROUTE_LEN, dustDepth, ROUTE_PTS, nearestRouteIndex } from './terrain.js';
 import { buildBase, updateBases } from './base.js';
 import { createAudio } from './audio.js';
 import { createSeeds, seedsDelivered, LAB } from './seeds.js';
@@ -35,7 +35,7 @@ import { createDustTrail } from './dust.js';
 import { createSonar, MAX_BIAS as SONAR_MAX_BIAS } from './sonar.js';
 import { createMinimap3D } from './minimap3d.js';
 import { createSkyMaterial, updateSky, horizonColor, planetOrbit, marsMoons } from './sky.js';
-import { REAL, REAL_PLACES } from './real-mars.js';
+import { REAL, REAL_PLACES, REGION_RADIO } from './real-mars.js';
 import { fogAltitudeScale } from './atmosphere.js';
 import { recordLeg, bestOf, fmtTime } from './records.js';
 import { stepDust, shakeOff, chargeFactor } from './paneldust.js';
@@ -1227,6 +1227,14 @@ function stepExplored(t) {
   if (t < exploredState.next) return;
   exploredState.next = t + 0.5;
   minimap.reveal(sim.pos.x, sim.pos.z);
+  // chatter on the road (real regions): comes on once as you pass each mark, counted from the base you left
+  if (REAL) {
+    const along = ROUTE_PTS[nearestRouteIndex(sim.pos.x, sim.pos.z)].s / ROUTE_LEN;
+    const progress = trip.target === BASES[1] ? along : 1 - along;
+    for (const m of REGION_RADIO[REAL.region] || []) {
+      if (!m.said && progress >= m.at && progress < m.at + 0.12) { m.said = true; say(m.lines); }
+    }
+  }
   const text = `${(minimap.exploredFraction() * 100).toFixed(1)}%`;
   if (text !== exploredState.text) { exploredState.text = text; hudExplored.textContent = text; }
   if (t > exploredState.saveAt) {
