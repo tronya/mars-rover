@@ -1,4 +1,6 @@
 import * as THREE from 'three';
+import { REAL } from './real-mars.js';
+import { slopeRedness } from './passability.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { terrainHeight, ROUTE_PTS, ROUTE_BOUNDS, BASES } from './terrain.js';
 import { PLANET } from './planet.js';
@@ -28,6 +30,7 @@ const LOOK_BY_PLANET = {
   },
 };
 const LOOK = LOOK_BY_PLANET[PLANET] || LOOK_BY_PLANET.mars;
+const STEEP = new THREE.Color(0xd12a1c);
 const ELEV_STOPS = LOOK.elev.map(([t, c]) => [t, new THREE.Color(c)]);
 function elevColor(hi, out) {
   let i = 0;
@@ -76,12 +79,17 @@ export function createMinimap3D(canvas, overlay, missionModules = [], extraSites
   geo.translate(center.x, 0, center.z);
   const pos = geo.attributes.position;
   let maxH = 1;
+  let minH = 0;
   const heights = new Float32Array(pos.count);
   for (let i = 0; i < pos.count; i++) {
     const h = terrainHeight(pos.getX(i), pos.getZ(i));
     heights[i] = h;
     if (h > maxH) maxH = h;
+    if (h < minH) minH = h;
   }
+  // Real ground dips well below the base: spread the colours over the whole range
+  // instead of burying everything under the base in the darkest stop.
+  if (!REAL) minH = 0;
   const col = new Float32Array(pos.count * 3);
   const cc = new THREE.Color();
   for (let i = 0; i < pos.count; i++) {
@@ -89,7 +97,9 @@ export function createMinimap3D(canvas, overlay, missionModules = [], extraSites
     // Most of the crossing sits low and only the mesas reach the top of the range;
     // a plain linear ramp buried the whole plain in the darkest stop. A gamma curve
     // gives the low ground a readable tone while peaks still stand out palest.
-    elevColor(Math.pow(Math.max(0, heights[i]) / maxH, 0.5), cc);
+    elevColor(Math.pow(Math.max(0, heights[i] - minH) / (maxH - minH), 0.5), cc);
+    // Real terrain: steep ground (a climb or a slide for a rover) shades towards red.
+    if (REAL) cc.lerp(STEEP, 0.75 * slopeRedness(REAL.slope(pos.getX(i), pos.getZ(i))));
     col[i * 3] = cc.r;
     col[i * 3 + 1] = cc.g;
     col[i * 3 + 2] = cc.b;

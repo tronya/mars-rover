@@ -208,3 +208,17 @@ test('atmosphere: the fog stretches with height, within bounds', async () => {
   }
   assert.ok(fogAltitudeScale(800) > 1.05, 'a slope of a few hundred metres should read');
 });
+
+test('passability map: red on steep ground, none on the road grade', async () => {
+  const { slopeRedness } = await import('../src/passability.js');
+  assert.equal(slopeRedness(0), 0);
+  assert.equal(slopeRedness(0.1), 0, 'the road grade must not light up');
+  assert.ok(slopeRedness(0.3) > 0.99 && slopeRedness(0.6) === 1);
+  let last = 0;
+  for (let s = 0; s <= 0.5; s += 0.02) { const r = slopeRedness(s); assert.ok(r >= last, 'not monotonic'); last = r; }
+  // on the real map some of the ground is marked, most of it is not
+  let marked = 0, n = 0;
+  for (let x = -REAL.halfW; x < REAL.halfW; x += 300) for (let z = -REAL.halfH; z < REAL.halfH; z += 300) { n++; if (slopeRedness(REAL.slope(x, z)) > 0.5) marked++; }
+  console.log(`  ${(100 * marked / n).toFixed(1)} % of the map reads as hard going`);
+  assert.ok(marked / n > 0.005 && marked / n < 0.6, 'marked share out of range');
+});
