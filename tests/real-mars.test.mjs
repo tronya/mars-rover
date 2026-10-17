@@ -184,7 +184,7 @@ test('sand ripples: only on flat dust, decimetres high, none on the road', () =>
   }
   console.log(`  ripples: strongest ${strongest.toFixed(2)} m over ${dusty} dusty flat points, ${offDust.toFixed(2)} m on bare ground`);
   assert.ok(dusty > 20, 'no dusty flats to test on');
-  assert.ok(strongest > 0.15 && strongest < 0.5, 'ripple height out of range');
+  assert.ok(strongest > 0.08 && strongest < 0.3, 'ripple height out of range');
   assert.equal(offDust, 0, 'ripples on bare ground');
   for (const p of ROUTE_PTS) assert.equal(sandRipples(p.x, p.z), 0, 'ripples on the road');
 });

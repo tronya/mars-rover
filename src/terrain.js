@@ -697,15 +697,15 @@ function verdantaHeight(x, z) {
 // A graded road across rough country: gentle along the road, hilly, cratered and
 // strewn with boulders once you leave it. Raw: before landmarks level their ground.
 // Wind-blown ripples on the flat, bright, dusty ground (the low basins of the orbiter
-// photo): crests a dozen metres apart across a global wind direction, bent a little by
+// photo): crests a score of metres apart across a global wind direction, bent a little by
 // noise. Zero on the road, on slopes and on bare dark ground. Returns metres of height.
 const WIND = 0.6; // radians: the crests run perpendicular to this
 export function sandRipples(x, z) {
   if (!REAL) return 0;
   const amt = dustDepth(x, z) * (1 - smooth(0.04, 0.12, REAL.slope(x, z)));
   if (amt <= 0.02) return 0;
-  const ph = (x * Math.cos(WIND) + z * Math.sin(WIND)) * 0.52 + (fbm(x * 0.02 + 5, z * 0.02 - 8, 2) - 0.44) * 9;
-  return amt * 0.3 * (Math.sin(ph) + 0.4 * Math.sin(2 * ph + 1));
+  const ph = (x * Math.cos(WIND) + z * Math.sin(WIND)) * 0.36 + (fbm(x * 0.02 + 5, z * 0.02 - 8, 2) - 0.44) * 9;
+  return amt * 0.16 * (Math.sin(ph) + 0.4 * Math.sin(2 * ph + 1));
 }
 
 // Real Mars: the DTM is the ground. Along the road it is graded to the road's own
