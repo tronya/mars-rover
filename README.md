@@ -95,6 +95,8 @@ node tools/verify.mjs            # npm test + the bot on both regions: the gate 
 `TEST_PLANET` and `TEST_CHASSIS` pick the planet and chassis. The bot steers with the
 game's own autopilot law, so a chassis that cannot finish the road shows up as a failure.
 
+For trying the late game without earning it: open the browser console and run `game.upgrades.maxOut()`, then reload. It maxes every upgrade and owns every vehicle, and the scrap you earned stays as it was. There is no button for it on purpose.
+
 `node tools/queue.mjs` keeps a ticket queue in `pipeline/tickets.json` (next / done /
 fail / status), used to hand out work in order during an unattended session.
 

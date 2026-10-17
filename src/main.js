@@ -758,13 +758,6 @@ for (const p of ['classic', 'rapier']) {
     location.reload();
   });
 }
-// Full build: every upgrade at the top level and every vehicle owned. The save is written
-// first, then the page reloads so the engine, the lamps and the garage all pick it up.
-document.getElementById('maxBuild').addEventListener('click', () => {
-  upgrades.maxOut();
-  location.search = '';
-  location.reload();
-});
 // Region switch (Mars only — the Moon and Верданта have their own ground): the real Jezero
 // DTM or the original procedural world. Read by real-mars.js at load, so it reloads.
 for (const r of ['jezero', 'gale', 'classic']) {
