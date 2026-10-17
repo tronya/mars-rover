@@ -1,5 +1,7 @@
 import * as THREE from 'three';
-import { pebbleDensity, terrainHeight, groundColorAtXZ } from './terrain.js';
+import { pebbleDensity, terrainHeight, groundColorAtXZ, dustDepth } from './terrain.js';
+import { REAL } from './real-mars.js';
+const REAL_DUST = !!REAL;
 import { PLANET } from './planet.js';
 
 // Dust thrown up by the wheels.
@@ -166,6 +168,12 @@ function patchNoise(x, z) {
   return 0.5 + 0.5 * (a * 0.5 + b * 0.32 + c * 0.18);
 }
 
+// Soft, bright ground throws more dust than rock or the graded road (terrain.js dustDepth:
+// 0 on the road and bare ground, 1 on deep dust); 1 on every world but real Mars.
+export function dustKick(depth) {
+  return 0.55 + 0.9 * depth;
+}
+
 export function createDustTrail() {
   material.uniforms.atlas.value = makeCloudAtlas();
   const quad = new THREE.PlaneGeometry(1, 1);
@@ -235,7 +243,7 @@ export function createDustTrail() {
       const slip = Math.hypot(w.vx, w.vy);
       const patch = 0.15 + 1.5 * Math.pow(patchNoise(w.cx, w.cz), 2.2);
       // A wider tyre churns up more of the ground, so it throws more dust.
-      const rate = (speed * 0.72 + slip * 2) * (0.12 + 0.9 * sandiness) * patch * (w.wk || 1);
+      const rate = (speed * 0.72 + slip * 2) * (0.12 + 0.9 * sandiness) * patch * (w.wk || 1) * (REAL_DUST ? dustKick(dustDepth(w.cx, w.cz)) : 1);
       if (VACUUM) {
         acc[i] = (acc[i] || 0) + rate * 6 * dt;
         while (acc[i] >= 1) {

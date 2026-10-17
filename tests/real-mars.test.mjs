@@ -188,3 +188,10 @@ test('sand ripples: only on flat dust, decimetres high, none on the road', () =>
   assert.equal(offDust, 0, 'ripples on bare ground');
   for (const p of ROUTE_PTS) assert.equal(sandRipples(p.x, p.z), 0, 'ripples on the road');
 });
+
+test('dust from the wheels: more on deep dust than on rock or the road', async () => {
+  const { dustKick } = await import('../src/dust.js');
+  assert.ok(dustKick(1) > dustKick(0.5) && dustKick(0.5) > dustKick(0), 'not increasing with depth');
+  assert.ok(dustKick(0) > 0.4 && dustKick(1) < 1.6, 'out of range');
+  assert.ok(dustKick(1) / dustKick(0) > 2, 'bright ground should throw at least twice the dust of bare ground');
+});
