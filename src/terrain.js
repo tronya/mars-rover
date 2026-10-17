@@ -716,7 +716,14 @@ function realMarsHeight(x, z) {
   const mid = (fbm(x * 0.06, z * 0.06, 3) - 0.44) * 0.9 * (0.5 + 1.2 * rough);
   const bumpy = (fbm(x * 0.18 + 9, z * 0.18 + 4, 2) - 0.44) * 0.3 * (0.5 + 2.4 * rough);
   const small = (vnoise(x * 0.35, z * 0.35) - 0.5) * 0.12;
-  return h + (mid + bumpy + small) * k;
+  // The DTM is 20-30 m per pixel: smooth where the real ground is rough, which is on steep
+  // faces (rims, scarps). Broken-up rock there, in metres, growing with the slope and
+  // gone on the road and the base pads.
+  const steep = smooth(0.1, 0.4, REAL.slope(x, z));
+  const crag = steep > 0
+    ? ((fbm(x * 0.11 + 70, z * 0.11 - 30, 3) - 0.44) * 8 + (vnoise(x * 0.45 + 5, z * 0.45 + 9) - 0.5) * 2) * steep * rough
+    : 0;
+  return h + (mid + bumpy + small + crag) * k;
 }
 
 function rawTerrainHeight(x, z) {

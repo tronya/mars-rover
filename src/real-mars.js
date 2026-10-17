@@ -61,13 +61,23 @@ function build(meta, bytes, albedoBytes) {
     const j = Math.min(H - 1, Math.max(0, Math.round((z + halfH) / mppY)));
     return albedoBytes[j * W + i] / 255;
   }
+  // Slope (rise over run) per pixel, once, so asking for it costs one lookup
+  const slopeGrid = new Float32Array(W * H);
+  for (let j = 1; j < H - 1; j++) for (let i = 1; i < W - 1; i++) {
+    slopeGrid[j * W + i] = Math.hypot((at(i + 1, j) - at(i - 1, j)) / (2 * mppX), (at(i, j + 1) - at(i, j - 1)) / (2 * mppY));
+  }
+  function slope(x, z) {
+    const i = Math.min(W - 1, Math.max(0, Math.round((x + halfW) / mppX)));
+    const j = Math.min(H - 1, Math.max(0, Math.round((z + halfH) / mppY)));
+    return slopeGrid[j * W + i];
+  }
   // lon/lat (degrees) to world x/z, for regions whose meta records the projection origin
   const R = meta.radius;
   const lonLat = (lon, lat) => ({
     x: (R * lon * Math.PI / 180 - meta.originX) - halfW,
     z: (meta.originY - R * lat * Math.PI / 180) - halfH,
   });
-  return { meta, halfW, halfH, height, albedo, lonLat, region };
+  return { meta, halfW, halfH, height, albedo, slope, lonLat, region };
 }
 
 export const REAL = await (async () => {

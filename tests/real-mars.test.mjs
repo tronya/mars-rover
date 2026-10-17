@@ -77,3 +77,28 @@ test('soft dust slows the rover: same drive, bright ground vs clear ground', { s
   console.log(`  12 s full throttle, 3 headings: dust ${(dust / 3).toFixed(1)} m, clear ${(clear / 3).toFixed(1)} m`);
   assert.ok(dust < clear * 0.99, 'dust did not slow the rover');
 });
+
+test('steep ground is broken up, flat ground and the road are not', () => {
+  const rms = (pick) => {
+    let sum = 0, n = 0;
+    for (let x = -REAL.halfW + 2200; x < REAL.halfW - 2200 && n < 400; x += 211) for (let z = -REAL.halfH + 2200; z < REAL.halfH - 2200 && n < 400; z += 197) {
+      if (roadDist(x, z) < 400 || !pick(REAL.slope(x, z))) continue;
+      // deviation of the game ground from the smooth DTM, minus the small-noise layers' own size
+      const d = terrainHeight(x, z) - (REAL.height(x, z) - REAL.ref);
+      sum += d * d; n++;
+    }
+    return { rms: Math.sqrt(sum / Math.max(n, 1)), n };
+  };
+  const steep = rms((s) => s > 0.25), flat = rms((s) => s < 0.08);
+  console.log(`  deviation from the DTM: steep ${steep.rms.toFixed(2)} m (${steep.n} pts), flat ${flat.rms.toFixed(2)} m (${flat.n} pts)`);
+  assert.ok(steep.n >= 10 && flat.n >= 10, 'not enough sample points');
+  assert.ok(steep.rms > flat.rms + 0.5, 'steep ground is not rougher than flat ground');
+  assert.ok(flat.rms < 0.9, 'flat ground got noisy');
+});
+
+test('the road surface does not follow the crag noise', () => {
+  for (const i of [5, 20, 40, Math.floor(ROUTE_PTS.length / 2)]) {
+    const p = ROUTE_PTS[i];
+    assert.ok(Math.abs(terrainHeight(p.x, p.z) - p.e) < 0.6, `road point ${i}: ${terrainHeight(p.x, p.z)} vs ${p.e}`);
+  }
+});
