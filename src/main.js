@@ -36,6 +36,7 @@ import { createSonar, MAX_BIAS as SONAR_MAX_BIAS } from './sonar.js';
 import { createMinimap3D } from './minimap3d.js';
 import { createSkyMaterial, updateSky, horizonColor, planetOrbit, marsMoons } from './sky.js';
 import { REAL, REAL_PLACES } from './real-mars.js';
+import { fogAltitudeScale } from './atmosphere.js';
 import { createWeather, WEATHER_TEXT } from './weather.js';
 
 const ARRIVE_R = 70; // how close counts as docked at a base
@@ -281,8 +282,10 @@ function weatherLook() {
   const w = weather.w;
   // At full blow you see maybe 150 m: the far terrain is simply gone in the murk.
   const s = Math.min(1, w * 1.25);
-  scene.fog.near = THREE.MathUtils.lerp(FOG_NEAR * viewK, 8, s);
-  scene.fog.far = THREE.MathUtils.lerp(FOG_FAR * viewK, KIND_FAR, s);
+  // thinner air up a slope: real Mars only (the other worlds keep their fixed fog)
+  const alt = REAL ? fogAltitudeScale(sim.pos.y) : 1;
+  scene.fog.near = THREE.MathUtils.lerp(FOG_NEAR * viewK * alt, 8, s);
+  scene.fog.far = THREE.MathUtils.lerp(FOG_FAR * viewK * alt, KIND_FAR, s);
   sky.material.uniforms.haze.value = Math.min(1, w * 1.2);
   if (w <= 0) {
     scene.fog.color.copy(fogBase);

@@ -195,3 +195,16 @@ test('dust from the wheels: more on deep dust than on rock or the road', async (
   assert.ok(dustKick(0) > 0.4 && dustKick(1) < 1.6, 'out of range');
   assert.ok(dustKick(1) / dustKick(0) > 2, 'bright ground should throw at least twice the dust of bare ground');
 });
+
+test('atmosphere: the fog stretches with height, within bounds', async () => {
+  const { fogAltitudeScale } = await import('../src/atmosphere.js');
+  assert.equal(fogAltitudeScale(0), 1);
+  let last = 0;
+  for (let y = -3000; y <= 6000; y += 250) {
+    const k = fogAltitudeScale(y);
+    assert.ok(k >= last, 'not monotonic');
+    assert.ok(k >= 0.85 && k <= 1.4, `out of bounds at ${y}`);
+    last = k;
+  }
+  assert.ok(fogAltitudeScale(800) > 1.05, 'a slope of a few hundred metres should read');
+});
