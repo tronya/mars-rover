@@ -1,0 +1,12 @@
+{
+ "width": 1100,
+ "height": 1000,
+ "mppX": 30,
+ "mppY": 30,
+ "minH": -4573.55078125,
+ "maxH": 482.456787109375,
+ "originX": 8136742.398099138,
+ "originY": -264768.3070835827,
+ "radius": 3396190,
+ "source": "HRSC DTM mosaic of Gale crater, 30 m/px (Persaud et al. 2021, CC BY 4.0, doi:10.5281/zenodo.5808354)"
+}

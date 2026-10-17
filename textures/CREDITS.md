@@ -16,3 +16,8 @@ Navigation CTX DTM mosaic (20 m/px) and CTX orthoimage mosaic (6 m/px) of Jezero
 Bland, M. T., Galuszka, D. M., Hare, T. M., Mayer, D. P., Redding, B. L., Wheeler, B. H., 2024,
 Mars Sample Return Terrain Relative Navigation HiRISE DTM and Orthoimage Mosaics, USGS Data Release,
 https://doi.org/10.5066/P13CPYYU. Rebuild with `node tools/prep-dem.mjs` (sources go in `tools/cache/`).
+
+`mars/gale-height.bin`, `mars/gale-albedo.bin`: cropped from the HRSC DTM mosaic of Gale crater,
+Persaud, D. M. et al. 2021, CC BY 4.0, https://doi.org/10.5281/zenodo.5808354 (30 m/px, MOLA/HRSC
+referenced). The albedo is derived from slope (there is no orthoimage in that source).
+Rebuild with `node tools/prep-gale.mjs` (source in `tools/cache/gale-hrsc.tif`).

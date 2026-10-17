@@ -1,12 +1,32 @@
-// Real Mars: the western rim, river delta and floor of Jezero crater, from the USGS
-// CTX stereo DTM of the Mars 2020 landing site (20 m/px, see tools/prep-dem.mjs and
-// textures/CREDITS.md). Loaded once, up front, so terrain.js can ask for a height
+// Real Mars: Jezero crater (USGS CTX DTM of the Mars 2020 landing site, 20 m/px, see
+// tools/prep-dem.mjs) or Gale crater (HRSC DTM, 30 m/px, tools/prep-gale.mjs); credits in
+// textures/CREDITS.md. Loaded once, up front, so terrain.js can ask for a height
 // synchronously like it always has. If the file is missing (or the player picked the
 // classic region) REAL stays null and the procedural Mars is used unchanged.
+const REGIONS = {
+  jezero: {
+    bases: [{ px: 1000, py: 860 }, { px: 760, py: 560 }], // АЛЬФА on the crater floor, БЕТА up on the delta
+    places: [
+      { name: 'Русло дельти', letter: 'Р', px: 520, py: 650, blurb: 'Тут річка колись впадала в озеро Єзеро. Видно, як вода розрізала вал.' },
+      { name: 'Кратер-свідок', letter: 'К', px: 645, py: 705, blurb: 'Малий кратер на дельті: удар стався вже після того, як озеро зникло.' },
+    ],
+    near: ['Пагорб-оглядач', 'Западина', 'Уступ'],
+  },
+  gale: {
+    // АЛЬФА at Bradbury Landing, where Curiosity touched down; БЕТА 8 km on, among the foothills near Pahrump Hills
+    bases: [{ lon: 137.4417, lat: -4.5895 }, { lon: 137.38, lat: -4.72 }],
+    places: [
+      { name: 'Гора Шарпа', letter: 'Ш', lon: 137.85, lat: -5.08, blurb: 'Eolis Mons, п\'ять кілометрів шарів: кожен шар — інша епоха Марса.' },
+      { name: 'Жовтий Ніж', letter: 'Ж', lon: 137.45, lat: -4.60, blurb: 'Тут марсохід Curiosity знайшов глину: колись тут була вода, придатна для життя.' },
+    ],
+    near: ['Пагорб-оглядач', 'Западина', 'Уступ'],
+  },
+};
 import { PLANET } from './planet.js';
 
 let region = 'jezero';
 try { region = localStorage.getItem('rover.region') || 'jezero'; } catch (e) { /* keep default */ }
+if (!REGIONS[region]) region = null; // 'classic' or anything unknown: procedural Mars
 
 async function loadBytes(name) {
   const url = new URL(`../textures/mars/${name}`, import.meta.url);
@@ -41,13 +61,19 @@ function build(meta, bytes, albedoBytes) {
     const j = Math.min(H - 1, Math.max(0, Math.round((z + halfH) / mppY)));
     return albedoBytes[j * W + i] / 255;
   }
-  return { meta, halfW, halfH, height, albedo };
+  // lon/lat (degrees) to world x/z, for regions whose meta records the projection origin
+  const R = meta.radius;
+  const lonLat = (lon, lat) => ({
+    x: (R * lon * Math.PI / 180 - meta.originX) - halfW,
+    z: (meta.originY - R * lat * Math.PI / 180) - halfH,
+  });
+  return { meta, halfW, halfH, height, albedo, lonLat, region };
 }
 
 export const REAL = await (async () => {
-  if (PLANET !== 'mars' || region !== 'jezero') return null;
+  if (PLANET !== 'mars' || !region) return null;
   try {
-    const [metaBytes, bytes, albedoBytes] = await Promise.all([loadBytes('jezero-meta.json'), loadBytes('jezero-height.bin'), loadBytes('jezero-albedo.bin')]);
+    const [metaBytes, bytes, albedoBytes] = await Promise.all([loadBytes(`${region}-meta.json`), loadBytes(`${region}-height.bin`), loadBytes(`${region}-albedo.bin`)]);
     return build(JSON.parse(new TextDecoder().decode(metaBytes)), bytes, albedoBytes);
   } catch (e) {
     console.warn('real Mars unavailable, using the procedural one:', e);
@@ -105,13 +131,15 @@ function findRoute(real, waypoints) {
   return legs.map((n) => [((n % gw) + 0.5) * cell - real.halfW, (((n / gw) | 0) + 0.5) * cell - real.halfH]);
 }
 
-// Map pixels (col,row) of the two bases: АЛЬФА on the crater floor, БЕТА up on the delta.
-const PIXELS = [[1000, 860], [760, 560]];
+// A base or place is given either as map pixels or as lon/lat; both end up in world metres.
+function toWorld(real, a) {
+  if (a.px !== undefined) return [a.px * real.meta.mppX - real.halfW, a.py * real.meta.mppY - real.halfH];
+  const p = real.lonLat(a.lon, a.lat);
+  return [p.x, p.z];
+}
 export const REAL_ROUTE = (() => {
   if (!REAL) return null;
-  const m = REAL.meta;
-  const toWorld = ([c, r]) => [c * m.mppX - REAL.halfW, r * m.mppY - REAL.halfH];
-  const pts = findRoute(REAL, PIXELS.map(toWorld));
+  const pts = findRoute(REAL, REGIONS[REAL.region].bases.map((b) => toWorld(REAL, b)));
   // thin it to a control point every ~300 m so the spline can round the corners
   const out = [pts[0]];
   let acc = 0;
@@ -123,12 +151,8 @@ export const REAL_ROUTE = (() => {
 })();
 
 // Named places on the real map, so the compass and the map have something real to point
-// at. The far ones were picked off the hillshade (map pixels); the near ones are found in
-// the data itself, within reach of the road. `blurb` is what the radio says on arrival.
-const FAR_PLACES = [
-  { name: 'Русло дельти', letter: 'Р', px: 520, py: 650, blurb: 'Тут річка колись впадала в озеро Єзеро. Видно, як вода розрізала вал.' },
-  { name: 'Кратер-свідок', letter: 'К', px: 645, py: 705, blurb: 'Малий кратер на дельті: удар стався вже після того, як озеро зникло.' },
-];
+// at. The far ones come from the region table; the near ones are found in the data itself,
+// within reach of the road. `blurb` is what the radio says on arrival.
 function nearPlaces() {
   const pts = REAL_ROUTE;
   const near = (x, z) => { let d = Infinity; for (const [px, pz] of pts) d = Math.min(d, Math.hypot(x - px, z - pz)); return d; };
@@ -143,17 +167,17 @@ function nearPlaces() {
     if (!steep || sl > steep.sl) steep = { x, z, sl };
   }
   return [
-    { name: 'Пагорб-оглядач', letter: 'П', ...hi, blurb: 'Найвища точка поблизу траси. Звідси видно і дельту, і дно кратера.' },
-    { name: 'Западина', letter: 'З', ...lo, blurb: 'Найнижча точка поблизу траси: тут збирався б пил, якби дули вітри.' },
-    { name: 'Уступ', letter: 'У', ...steep, blurb: 'Крутий уступ: шар за шаром порода, яку колись відклала вода.' },
-  ];
+    hi && { name: 'Пагорб-оглядач', letter: 'П', ...hi, blurb: 'Найвища точка поблизу траси. Звідси видно далеко навколо.' },
+    lo && { name: 'Западина', letter: 'З', ...lo, blurb: 'Найнижча точка поблизу траси: тут збирається пил.' },
+    steep && { name: 'Уступ', letter: 'У', ...steep, blurb: 'Крутий уступ: шар за шаром порода, яку колись відклала вода.' },
+  ].filter(Boolean);
 }
 export const REAL_PLACES = REAL
   ? [
-    ...FAR_PLACES.map((p) => ({
-      name: p.name, letter: p.letter, blurb: p.blurb,
-      x: p.px * REAL.meta.mppX - REAL.halfW, z: p.py * REAL.meta.mppY - REAL.halfH,
-    })),
+    ...REGIONS[REAL.region].places.map((p) => {
+      const [x, z] = toWorld(REAL, p);
+      return { name: p.name, letter: p.letter, blurb: p.blurb, x, z };
+    }),
     ...nearPlaces(),
   ]
   : [];

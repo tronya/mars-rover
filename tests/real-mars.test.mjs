@@ -11,7 +11,7 @@ const { terrainHeight, ROUTE_PTS, ROUTE_LEN, BASES, roadDist } = await import('.
 
 test('the real map loaded', () => {
   assert.ok(REAL, 'REAL is null: textures/mars/jezero-height.bin missing?');
-  assert.equal(REAL.meta.mppX, 20);
+  assert.ok(REAL.meta.mppX === 20 || REAL.meta.mppX === 30);
 });
 
 test('far from the road the ground is the measured one', () => {
@@ -59,7 +59,7 @@ test('soft dust: none on the road, some off it, always 0..1', async () => {
   assert.ok(max > 0.3, `no soft ground anywhere (max ${max})`);
 });
 
-test('soft dust slows the rover: same drive, bright ground vs clear ground', async () => {
+test('soft dust slows the rover: same drive, bright ground vs clear ground', { skip: REAL.region !== 'jezero' && 'patches are picked on the Jezero map' }, async () => {
   const { VehicleSim } = await import('../src/physics.js');
   // two near-flat patches well off the road, found with tools-side scans: dust 1.0 vs 0
   const drive = (x, z, heading) => {

@@ -8,7 +8,7 @@ import { createAmbient } from './ambient.js';
 import { createBeams } from './beams.js';
 import { CHASSIS, SPEC, CHASSIS_LIST, WHEEL_DEFS, setChassis } from './chassis.js';
 import { VehicleSim, HoverSim, PLANET } from './physics.js';
-import { createTerrain, groundHeight, terrainHeight, BASES, roadSpawn, setViewScale, waterDepthAt, getSettlement, roadDist, ROAD_HALF, deckHeight } from './terrain.js';
+import { createTerrain, groundHeight, terrainHeight, BASES, roadSpawn, setViewScale, waterDepthAt, getSettlement, roadDist, ROAD_HALF, deckHeight, ROUTE_LEN } from './terrain.js';
 import { buildBase, updateBases } from './base.js';
 import { createAudio } from './audio.js';
 import { createSeeds, seedsDelivered, LAB } from './seeds.js';
@@ -660,7 +660,7 @@ document.getElementById('sandToggle').addEventListener('click', toggleSand);
 // Travel reloads the page, because planet.js and everything derived from it (gravity,
 // terrain, sky, the mission and debris pools) is read once at module load.
 const PLANET_SUBTITLE = {
-  mars: 'перехід АЛЬФА → БЕТА · ~8 км',
+  mars: `перехід АЛЬФА → БЕТА · ~${Math.round(ROUTE_LEN / 1000)} км`,
   moon: 'ФЛЕШБЕК · Місяць · уламки Гермес-1',
   verdanta: 'Верданта · перша висадка',
 };
@@ -755,9 +755,9 @@ for (const p of ['classic', 'rapier']) {
 }
 // Region switch (Mars only — the Moon and Верданта have their own ground): the real Jezero
 // DTM or the original procedural world. Read by real-mars.js at load, so it reloads.
-for (const r of ['jezero', 'classic']) {
+for (const r of ['jezero', 'gale', 'classic']) {
   const btn = document.getElementById(`region-${r}`);
-  btn.classList.toggle('on', (REAL ? 'jezero' : 'classic') === r);
+  btn.classList.toggle('on', (REAL ? REAL.region : 'classic') === r);
   btn.disabled = PLANET !== 'mars';
   btn.addEventListener('click', () => {
     try { localStorage.setItem('rover.region', r); } catch (e) { /* storage may be blocked */ }

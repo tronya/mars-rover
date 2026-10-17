@@ -1,8 +1,8 @@
 import fs from 'node:fs';
 import { PNG } from 'pngjs';
 const dir = new URL('../textures/mars/', import.meta.url).pathname;
-const m = JSON.parse(fs.readFileSync(dir + 'jezero-meta.json'));
-const b = fs.readFileSync(dir + 'jezero-height.bin');
+const m = JSON.parse(fs.readFileSync(dir + (process.argv[3]||'jezero')+'-meta.json'));
+const b = fs.readFileSync(dir + (process.argv[3]||'jezero')+'-height.bin');
 const u = new Uint16Array(b.buffer, b.byteOffset, b.length / 2);
 const H = (i) => m.minH + (u[i] / 65535) * (m.maxH - m.minH);
 const png = new PNG({ width: m.width, height: m.height });
