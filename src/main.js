@@ -38,6 +38,7 @@ import { createSkyMaterial, updateSky, horizonColor, planetOrbit, marsMoons } fr
 import { REAL, REAL_PLACES } from './real-mars.js';
 import { fogAltitudeScale } from './atmosphere.js';
 import { recordLeg, bestOf, fmtTime } from './records.js';
+import { createRecorder, ghostAt, ghostTimeAt, saveGhost, loadGhost, ghostKey } from './ghost.js';
 import { formatAltitude, formatTilt, pitchRollDeg } from './attitude.js';
 import { createWeather, WEATHER_TEXT } from './weather.js';
 
@@ -1078,6 +1079,23 @@ const trip = { target: BASES[1], docked: false, legs: 0, best: Infinity };
 const leg = { t: 0, valid: false, last: null };
 const legKey = (from, to) => ({ region: REAL ? REAL.region : PLANET, chassis: CHASSIS, from: from.name, to: to.name });
 const hudBest = document.getElementById('bestStat');
+// The ghost of the best crossing, replayed beside the leg in progress: a translucent hull.
+const recorder = createRecorder();
+const ghost = { track: null, key: '', hint: 0 };
+const ghostMesh = new THREE.Group();
+{
+  const body = new THREE.Mesh(
+    new THREE.BoxGeometry(SPEC.box.w, SPEC.box.h, SPEC.box.l),
+    new THREE.MeshBasicMaterial({ color: 0x4fe0ff, transparent: true, opacity: 0.22, depthWrite: false, fog: false })
+  );
+  const edges = new THREE.LineSegments(
+    new THREE.EdgesGeometry(body.geometry),
+    new THREE.LineBasicMaterial({ color: 0x9af0ff, transparent: true, opacity: 0.8, fog: false })
+  );
+  ghostMesh.add(body, edges);
+  ghostMesh.visible = false;
+  scene.add(ghostMesh);
+}
 let shownBest = '';
 
 function distanceTo(b) {
@@ -1889,7 +1907,22 @@ function frame() {
   leg.last = { x: sim.pos.x, z: sim.pos.z };
   if (distanceTo(other) < ARRIVE_R * 1.6) { leg.t = 0; leg.valid = true; } else if (leg.valid) leg.t += dt;
   const bestNow = bestOf(legKey(other, trip.target));
-  const bestText = `${bestNow === null ? '–' : fmtTime(bestNow)} · ${leg.valid && leg.t > 0 ? fmtTime(leg.t) : '0:00'}`;
+  // the ghost for this direction (read from storage only when the direction changes)
+  const gKey = ghostKey(legKey(other, trip.target));
+  if (gKey !== ghost.key) { ghost.key = gKey; ghost.track = loadGhost(legKey(other, trip.target)); ghost.hint = 0; }
+  if (leg.valid && leg.t > 0) recorder.sample(leg.t, sim.pos.x, sim.pos.z, sim.yaw());
+  else { recorder.reset(); ghost.hint = 0; }
+  let gap = '';
+  const gp = ghost.track && leg.valid && leg.t > 0 ? ghostAt(ghost.track, leg.t) : null;
+  if (gp && !gp.done) {
+    ghostMesh.visible = true;
+    ghostMesh.position.set(gp.x, groundHeight(gp.x, gp.z) + SPEC.box.h / 2 + 0.5, gp.z);
+    ghostMesh.rotation.y = gp.yaw;
+    const at = ghostTimeAt(ghost.track, sim.pos.x, sim.pos.z, ghost.hint);
+    ghost.hint = Math.max(0, at.index - 4);
+    if (at.dist < 60) { const d = at.time - leg.t; gap = ` · ${d >= 0 ? '+' : '\u2212'}${Math.abs(d).toFixed(1)} с`; }
+  } else ghostMesh.visible = false;
+  const bestText = `${bestNow === null ? '–' : fmtTime(bestNow)} · ${leg.valid && leg.t > 0 ? fmtTime(leg.t) : '0:00'}${gap}`;
   if (bestText !== shownBest) { shownBest = bestText; hudBest.textContent = bestText; }
   if (dist < ARRIVE_R && !trip.docked) {
     trip.docked = true;
@@ -1898,6 +1931,7 @@ function frame() {
     if (leg.valid) {
       const r = recordLeg(legKey(other, trip.target), leg.t);
       if (r.counted) timeNote = r.isNew ? ` · ${fmtTime(leg.t)}, новий рекорд!` : ` · ${fmtTime(leg.t)} (рекорд ${fmtTime(r.best)})`;
+      if (r.counted && r.isNew) { saveGhost(legKey(other, trip.target), recorder.finish(leg.t, sim.pos.x, sim.pos.z, sim.yaw())); ghost.key = ''; }
     }
     leg.valid = false;
     flash(`Прибув на ${trip.target.name}${timeNote}. Наступна ціль: ${other.name}`);
