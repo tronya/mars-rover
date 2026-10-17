@@ -1249,7 +1249,9 @@ function stoneInCell(ci, cj) {
   if (baseFlatten(x, z) < 0.999) return false;
   if (nearLandmark(x, z, 4)) return false;
   const b = hash(ci + 91, cj + 3);
-  const big = b > 0.97 - 0.13 * rough;
+  // The graded road is kept clear of boulders: a lane a truck can follow without a
+  // rescue. Small stones stay; they are what makes the road feel like a road.
+  const big = b > 0.97 - 0.13 * rough && (!REAL || roadDist(x, z) > 9);
   const r = big ? 1.3 + b * 2.2 : 0.35 + b * 1.15;
   stone.x = x;
   stone.z = z;

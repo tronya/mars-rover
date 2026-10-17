@@ -51,8 +51,10 @@ while (t < LIMIT) {
   let k = idx;
   while (k < ROUTE_PTS.length - 1 && ROUTE_PTS[k].s - ROUTE_PTS[idx].s < look) k++;
   const tx = ROUTE_PTS[k].x - p.x, tz = ROUTE_PTS[k].z - p.z;
-  const err = Math.atan2(fwd.z * tx - fwd.x * tz, fwd.x * tx + fwd.z * tz); // + = target is to the left
-  const steer = Math.max(-1, Math.min(1, (err * (SPEC.skidSteer ? 0.45 : 1.2)) / (1 + Math.abs(sim.speed) * 0.12)));
+  // the game's own autopilot law (main.js): steer the wheel towards the bearing of the target
+  const wrap = (a) => Math.atan2(Math.sin(a), Math.cos(a));
+  const err = wrap(Math.atan2(tx, tz) - sim.yaw()); // + = target is to the left
+  const steerTo = Math.max(-1, Math.min(1, err * 1.5));
   // slow for corners and for the last stretch
   const toGo = ROUTE_LEN - ROUTE_PTS[idx].s;
   const target = Math.min(Number(process.env.BOT_VMAX) || 14, 4 + toGo / 12) * (1 - 0.6 * Math.min(1, Math.abs(err)));
@@ -61,8 +63,8 @@ while (t < LIMIT) {
     // wedged on a rock: back off turning one way, then try again
     recovering -= DT;
     sim.update(DT, { throttle: -0.8, steer: recoveryDir, brake: 0 });
-  } else sim.update(DT, { throttle, steer, brake: sim.speed > target + 1.5 ? 0.4 : 0 });
-  if (process.env.BOT_DEBUG && ticks % 120 === 0) console.log(t.toFixed(0), 'pos', p.x.toFixed(0), p.z.toFixed(0), 'err', err.toFixed(2), 'steer', steer.toFixed(2), 'spd', sim.speed.toFixed(1), 'idx', idx, 'tgt', k);
+  } else sim.update(DT, { throttle, steerTo, brake: sim.speed > target + 1.5 ? 0.4 : 0 });
+  if (process.env.BOT_DEBUG && ticks % 120 === 0) console.log(t.toFixed(0), 'pos', p.x.toFixed(0), p.z.toFixed(0), 'err', err.toFixed(2), 'steerTo', steerTo.toFixed(2), 'spd', sim.speed.toFixed(1), 'idx', idx, 'tgt', k);
   t += DT; ticks++;
   topSpeed = Math.max(topSpeed, sim.speed);
   along = Math.max(along, ROUTE_PTS[nearestRouteIndex(p.x, p.z)].s);
