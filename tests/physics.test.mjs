@@ -92,11 +92,14 @@ test('survives 40 s of rough driving', async () => {
 
 test('reset puts it back upright on the ground', async () => {
   const [, b] = await both();
+  // On the graded road, where no boulder can land under the hull whatever the rock map.
+  const { roadSpawn } = await import('../src/terrain.js');
+  const at = roadSpawn(false);
   run(b, 3, { throttle: 1, steer: 1, brake: 0 });
-  b.reset(200, 150, 1);
+  b.reset(at.x, at.z, 1);
   run(b, 2, IDLE);
   console.log(`  after reset: upY ${fmt(b.upY)}, clearance ${fmt(clearance(b))}`);
-  assert.ok(b.upY > 0.95 && Math.abs(b.pos.x - 200) < 2 && Math.abs(b.pos.z - 150) < 2);
+  assert.ok(b.upY > 0.95 && Math.abs(b.pos.x - at.x) < 2 && Math.abs(b.pos.z - at.z) < 2);
 });
 
 test('stops at a building wall instead of driving through', async () => {

@@ -45,3 +45,15 @@ test('bases sit level on their pads', () => {
     }
   }
 });
+
+test('soft dust: none on the road, some off it, always 0..1', async () => {
+  const { dustDepth } = await import('../src/terrain.js');
+  assert.equal(dustDepth(ROUTE_PTS[10].x, ROUTE_PTS[10].z), 0);
+  let max = 0;
+  for (let x = -9000; x <= 9000; x += 600) for (let z = -9000; z <= 9000; z += 600) {
+    const d = dustDepth(x, z);
+    assert.ok(d >= 0 && d <= 1);
+    max = Math.max(max, d);
+  }
+  assert.ok(max > 0.3, `no soft ground anywhere (max ${max})`);
+});

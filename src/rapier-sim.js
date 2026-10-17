@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { VehicleSim, GRAVITY, motorFor } from './physics.js';
-import { groundHeight, deckHeight, landmarkWall, setDeckRef, waterDepthAt } from './terrain.js';
+import { groundHeight, deckHeight, dustDepth, landmarkWall, setDeckRef, waterDepthAt } from './terrain.js';
 import { CHASSIS, chassisKit } from './chassis.js';
 
 // The rover driven by Rapier (a real rigid-body engine, WASM) instead of physics.js's
@@ -378,7 +378,7 @@ export class RapierVehicleSim extends VehicleSim {
       // Rapier's brake is an impulse budget per step; parked means hold firm.
       const brakeF = cmd.parked ? BRAKE_FORCE * 2 : cmd.brake * BRAKE_FORCE + skidBrake;
       ctl.setWheelBrake(i, brakeF * h);
-      ctl.setWheelFrictionSlip(i, upright * SPEC.mu * (w.mu ?? 1) * this.gripMul);
+      ctl.setWheelFrictionSlip(i, upright * SPEC.mu * (w.mu ?? 1) * this.gripMul * (1 - 0.12 * dustDepth(this.pos.x, this.pos.z)));
       // Spring and damper for where this corner is in its travel right now.
       const L = this.wheels[i].L;
       const comp = SUSP.Lfree - L;
@@ -410,7 +410,7 @@ export class RapierVehicleSim extends VehicleSim {
     const vh = Math.hypot(v.x, v.z);
     const contacts = this.wheels.filter((w) => w.contact).length;
     if (vh > 0.01 && contacts) {
-      const resist = (ROLLING_RES * this.rollMul * WEIGHT * contacts) / NW + k.DRAG_V2 * this.dragMul * vh * vh;
+      const resist = (ROLLING_RES * this.rollMul * (1 + 0.8 * dustDepth(this.pos.x, this.pos.z)) * WEIGHT * contacts) / NW + k.DRAG_V2 * this.dragMul * vh * vh;
       const f = Math.min(resist, (MASS * vh) / h) / vh;
       body.addForce({ x: -v.x * f, y: 0, z: -v.z * f }, true);
     }

@@ -1206,6 +1206,14 @@ export function terrainHeight(x, z) {
   return h;
 }
 
+// How deep the soft dust lies at a spot, 0..1: the bright patches of the orbiter photo,
+// off the graded road. A rover rolls harder through it and grips a little less. Zero
+// everywhere except real Mars, so the other worlds drive exactly as before.
+export function dustDepth(x, z) {
+  if (!REAL) return 0;
+  return smooth(ROAD_HALF + 14, ROAD_HALF + 170, roadDist(x, z)) * smooth(0.5, 0.85, REAL.albedo(x, z));
+}
+
 // How thickly loose pebbles lie at a spot, 0..1. Gravel comes in patches a few
 // hundred metres across with clear ground between them, and each patch is itself
 // uneven, so the amount changes as you drive instead of being spread evenly.
@@ -1228,7 +1236,15 @@ function stoneInCell(ci, cj) {
   // Rocks clump into fields, leaving clear lanes between them.
   // Sparse and small on the road, dense with big boulders off it.
   const rough = smooth(ROAD_HALF + 14, ROAD_HALF + 170, roadDist(x, z));
-  const density = Math.min(0.95, (0.12 + 0.72 * smooth(0.42, 0.62, fbm(x * 0.0055 + 300, z * 0.0055 - 60, 2))) * (0.22 + 1.5 * rough));
+  let density = Math.min(0.95, (0.12 + 0.72 * smooth(0.42, 0.62, fbm(x * 0.0055 + 300, z * 0.0055 - 60, 2))) * (0.22 + 1.5 * rough));
+  // Real Mars: rubble gathers on slopes (crater rims, the delta's scarp) and where the
+  // orbiter photo is dark; bright dust-covered flats are nearly clear.
+  if (REAL) {
+    const sx = REAL.height(x + 20, z) - REAL.height(x - 20, z);
+    const sz = REAL.height(x, z + 20) - REAL.height(x, z - 20);
+    const slope = Math.hypot(sx, sz) / 40;
+    density = Math.min(0.95, density * (0.4 + 1.1 * (1 - REAL.albedo(x, z))) * (0.7 + 4 * slope));
+  }
   if (a > density) return false;
   if (baseFlatten(x, z) < 0.999) return false;
   if (nearLandmark(x, z, 4)) return false;

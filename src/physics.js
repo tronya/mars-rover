@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { groundHeight, landmarkWall, landmarkPoles, setDeckRef, waterDepthAt, waterLevelAt } from './terrain.js';
+import { groundHeight, dustDepth, landmarkWall, landmarkPoles, setDeckRef, waterDepthAt, waterLevelAt } from './terrain.js';
 import { WHEEL_R, SUSP } from './vehicle.js';
 import { SPEC, WHEEL_DEFS, AXLE_PAIRS, steerAngle } from './chassis.js';
 import { PLANET } from './planet.js';
@@ -588,6 +588,7 @@ export class VehicleSim {
     }
 
     // Pass 2: suspension + tyre forces at each contact patch.
+    const dust = dustDepth(this.pos.x, this.pos.z); // soft ground: more rolling drag, less grip
     for (const w of wheels) {
       if (!w.contact) {
         // Nothing to grip in the air, so the tyre isn't held to road speed like it
@@ -638,11 +639,11 @@ export class VehicleSim {
       w.vy = vy;
 
       const N = Fs;
-      const grip = MU * w.mu * this.gripMul * N;
+      const grip = MU * w.mu * this.gripMul * N * (1 - 0.12 * dust);
       let Fx;
       if (cmd.parked) Fx = -grip * Math.tanh(vx / 0.05);
       else {
-        const resist = cmd.brake * BRAKE_FORCE + ROLLING_RES * this.rollMul * N + (DRAG_V2 * this.dragMul * vx * vx) / NW;
+        const resist = cmd.brake * BRAKE_FORCE + ROLLING_RES * this.rollMul * (1 + 0.8 * dust) * N + (DRAG_V2 * this.dragMul * vx * vx) / NW;
         const isDriven = this.awd || !w.front;
         // Skid steer (tank-style): no wheel turns; one side is driven harder, or the
         // other way, than the other. Steering left slows or reverses the left side.
