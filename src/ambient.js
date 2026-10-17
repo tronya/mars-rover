@@ -1,3 +1,4 @@
+import { beamLit } from './beam.js';
 import * as THREE from 'three';
 import { PLANET } from './planet.js';
 import { terrainHeight, waterDepthAt, waterLevelAt } from './terrain.js';
@@ -344,6 +345,12 @@ export function createAmbient() {
     const night = 1 - daylight;
     // Sprites are unlit, so their brightness follows the light by hand.
     const lit = 0.12 + 0.88 * daylight;
+    // At night the blowing sand and the dust plumes are only there where the headlights
+    // reach them: everything else is dark. `mask` is 1 by day, the beam by night.
+    const nightK = THREE.MathUtils.smoothstep(night, 0.25, 0.7);
+    const H = ctx.head && ctx.head.on ? ctx.head : null;
+    const mask = (x, y, z) => (1 - nightK) + nightK * (H ? Math.min(1, beamLit(x, y, z, H.x, H.y, H.z, H.dx, H.dz) * 1.7) : 0);
+    const litBlown = lit + nightK * ((H ? 0.85 : 0.12) - lit); // what the points glow with, by day or in the beam
     out.push.set(0, 0);
 
     if (devilMat) {
@@ -376,7 +383,7 @@ export function createAmbient() {
 
     if (sand) {
       sand.mat.uniforms.scale.value = ctx.pxScale;
-      sand.mat.uniforms.bright.value = lit;
+      sand.mat.uniforms.bright.value = litBlown;
       grains.forEach((g, i) => {
         g.t += dt;
         if (first || g.t > g.life) { respawnGrain(g, cx, cz); if (first) g.t = Math.random() * g.life; }
@@ -389,14 +396,14 @@ export function createAmbient() {
         sand.pos[i * 3 + 1] = g.y0 + (g.y1 - g.y0) * u + 0.06 + hop;
         sand.pos[i * 3 + 2] = pz;
         sand.size[i] = g.s;
-        sand.alpha[i] = Math.sin(u * Math.PI) * (g.haze ? 0.09 : 0.9);
+        sand.alpha[i] = Math.sin(u * Math.PI) * (g.haze ? 0.09 : 0.9) * (nightK > 0 ? mask(px, sand.pos[i * 3 + 1], pz) : 1);
       });
       sand.flush();
     }
 
     if (drift) {
       drift.mat.uniforms.scale.value = ctx.pxScale;
-      drift.mat.uniforms.bright.value = lit;
+      drift.mat.uniforms.bright.value = litBlown;
       if (first || (crestScan -= dt) <= 0) { crestScan = 2.5; scanCrests(cx, cz); }
       // Gusty: the ridges smoke in pulses, not a constant hose.
       const gust = 0.45 + 0.55 * Math.max(0, Math.sin(time * 0.35) * 0.7 + Math.sin(time * 1.1 + 1.3) * 0.3);
@@ -411,7 +418,7 @@ export function createAmbient() {
         drift.pos[i * 3 + 1] = p.y0 + (p.y1 - p.y0) * u * u + Math.sin(u * Math.PI) * 0.8;
         drift.pos[i * 3 + 2] = p.z + WIND.y * p.v * p.t;
         drift.size[i] = p.s * (0.6 + u * 1.4);
-        drift.alpha[i] = p.ok ? Math.sin(u * Math.PI) * 0.42 * gust * Math.min(1, crests[p.c]?.lee / 4 || 1) : 0;
+        drift.alpha[i] = p.ok ? Math.sin(u * Math.PI) * 0.42 * gust * Math.min(1, crests[p.c]?.lee / 4 || 1) * (nightK > 0 ? mask(drift.pos[i * 3], drift.pos[i * 3 + 1], drift.pos[i * 3 + 2]) : 1) : 0;
       });
       drift.flush();
     }

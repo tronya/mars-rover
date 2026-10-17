@@ -2058,7 +2058,7 @@ function frame() {
     const dawn = Math.max(0, 1 - Math.abs(timeOfDay - SUNRISE - 0.035) / 0.07);
     const air = ambient.update(dt, {
       x: sim.pos.x, z: sim.pos.z, daylight, pxScale: sandCtx.pxPerUnit, dawn,
-      yaw: sim.yaw(), vx: sim.vel.x, vz: sim.vel.z, headOn: lampLevel() >= 2,
+      yaw: sim.yaw(), vx: sim.vel.x, vz: sim.vel.z, headOn: lampLevel() >= 2, head: sandCtx.head,
     });
     // A dust devil that crosses the rover shoves it round: a swirl plus a pull in,
     // a little of it turned into yaw so the rover gets spun, not just slid.

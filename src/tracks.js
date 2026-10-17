@@ -27,12 +27,14 @@ const TINTS = {
 const BERM = new THREE.Color(TINTS[0]).multiplyScalar(0.5).toArray(); // dust thrown clear of the tyre
 const FLOOR = new THREE.Color(TINTS[1]).multiplyScalar(0.5).toArray(); // packed down under it
 const LANES = [
-  { off: -1.05, lift: 0.005, tint: BERM },
-  { off: -0.7, lift: 0.17, tint: BERM },
-  { off: -0.42, lift: 0.015, tint: FLOOR },
-  { off: 0.42, lift: 0.015, tint: FLOOR },
-  { off: 0.7, lift: 0.17, tint: BERM },
-  { off: 1.05, lift: 0.005, tint: BERM },
+  // `a` is how opaque each lane is: the outer edge of the berm dissolves into the ground
+  // instead of ending on a ruled line.
+  { off: -1.05, lift: 0.005, tint: BERM, a: 0.0 },
+  { off: -0.7, lift: 0.17, tint: BERM, a: 0.6 },
+  { off: -0.42, lift: 0.015, tint: FLOOR, a: 0.72 },
+  { off: 0.42, lift: 0.015, tint: FLOOR, a: 0.72 },
+  { off: 0.7, lift: 0.17, tint: BERM, a: 0.6 },
+  { off: 1.05, lift: 0.005, tint: BERM, a: 0.0 },
 ];
 // No wind on the Moon: a rut stays exactly as it was made, so there they never fade
 // (the ring is just long — a couple of kilometres per wheel — before it reuses).
@@ -51,13 +53,16 @@ export function createTracks(wheels = 4, segments = 170, width = 1.05) {
   const nrm = new Float32Array(total * 3);
   const col = new Float32Array(total * 4);
   const birth = new Float32Array(total);
+  const tuv = new Float32Array(total * 2); // across the track (-1..1 of the half width) and metres along it
+  const along = new Float64Array(wheels); // distance driven per wheel, for the tread pattern
 
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
   geo.setAttribute('normal', new THREE.BufferAttribute(nrm, 3));
   geo.setAttribute('color', new THREE.BufferAttribute(col, 4));
   geo.setAttribute('birth', new THREE.BufferAttribute(birth, 1));
-  const A = ['position', 'normal', 'color', 'birth'].map((n) => geo.attributes[n]);
+  geo.setAttribute('tuv', new THREE.BufferAttribute(tuv, 2));
+  const A = ['position', 'normal', 'color', 'birth', 'tuv'].map((n) => geo.attributes[n]);
 
   const mat = new THREE.MeshStandardMaterial({
     vertexColors: true,
@@ -77,10 +82,32 @@ export function createTracks(wheels = 4, segments = 170, width = 1.05) {
   mat.onBeforeCompile = (sh) => {
     sh.uniforms.seq = seqU;
     sh.vertexShader = sh.vertexShader
-      .replace('#include <common>', '#include <common>\nattribute float birth;\nuniform float seq;')
+      .replace('#include <common>', '#include <common>\nattribute float birth;\nattribute vec2 tuv;\nvarying vec2 vTuv;\nuniform float seq;')
       .replace('#include <color_vertex>', `#include <color_vertex>
         float trackF = ${FOREVER ? '1.0' : `max( 0.0, 1.0 - ( seq - birth ) / ${life.toFixed(1)} )`};
-        vColor.a *= trackF * trackF;`);
+        vColor.a *= trackF * trackF;
+        vTuv = tuv;`);
+    sh.fragmentShader = sh.fragmentShader
+      .replace('#include <common>', `#include <common>
+        varying vec2 vTuv;
+        float trH( vec2 p ) { return fract( sin( dot( p, vec2( 127.1, 311.7 ) ) ) * 43758.5453 ); }
+        float trN( vec2 p ) {
+          vec2 i = floor( p ); vec2 f = fract( p ); f = f * f * ( 3.0 - 2.0 * f );
+          return mix( mix( trH( i ), trH( i + vec2( 1.0, 0.0 ) ), f.x ), mix( trH( i + vec2( 0.0, 1.0 ) ), trH( i + vec2( 1.0, 1.0 ) ), f.x ), f.y );
+        }`)
+      .replace('#include <color_fragment>', `#include <color_fragment>
+        {
+          // Tread: chevron lugs pressed into the packed floor of the rut, worn and patchy,
+          // and a ragged edge where the berm crumbles, so it reads as a tyre, not a stripe.
+          float a = abs( vTuv.x );
+          float ph = vTuv.y * 3.3 + a * 2.4;
+          float lug = smoothstep( 0.3, 0.46, abs( fract( ph ) - 0.5 ) );
+          float inPatch = 1.0 - smoothstep( 0.42, 0.56, a );
+          float cell = trN( vec2( vTuv.y * 2.2, vTuv.x * 3.0 ) ) * 0.65 + trN( vec2( vTuv.y * 7.0, vTuv.x * 9.0 ) ) * 0.35;
+          float wear = 0.5 + 0.5 * trN( vec2( vTuv.y * 0.35 + 3.0, 1.7 ) );
+          diffuseColor.rgb *= mix( 1.0, 0.6, lug * inPatch * 0.85 * wear ) * ( 0.93 + 0.14 * cell );
+          diffuseColor.a *= 1.0 - 0.45 * smoothstep( 0.62, 1.0, a ) * cell;
+        }`);
   };
   const mesh = new THREE.Mesh(geo, mat);
   mesh.frustumCulled = false; // the ring spans hundreds of metres and moves
@@ -112,11 +139,19 @@ export function createTracks(wheels = 4, segments = 170, width = 1.05) {
       const bz = e ? toZ : fromZ;
       for (let l = 0; l < LANES.length; l++) {
         const k = e * LANES.length + l;
-        cx[k] = bx + rx * LANES[l].off;
-        cz[k] = bz + rz * LANES[l].off;
-        cy[k] = surfaceHeight(cx[k], cz[k]) + LANES[l].lift;
+        // The berms are loose dust: wavering a few centimetres in and out and in height,
+        // never a ruled line (the floor lanes stay put so the tread keeps its shape).
+        const loose = LANES[l].lift > 0.1 ? 1 : 0;
+        const jx = loose * 0.09 * (Math.sin(bx * 0.9 + bz * 0.7 + l * 3.1) + Math.sin(bx * 2.7 - bz * 1.9 + l));
+        cx[k] = bx + rx * (LANES[l].off + jx);
+        cz[k] = bz + rz * (LANES[l].off + jx);
+        cy[k] = surfaceHeight(cx[k], cz[k]) + LANES[l].lift * (1 + loose * 0.35 * Math.sin(bx * 1.3 + bz * 1.1 + l));
       }
     }
+
+    const a0d = along[w];
+    along[w] += len;
+    const a1d = along[w];
 
     // One ring shared by all the wheels, so a frame's new segments sit side by side in
     // the buffers and go up to the GPU as one small contiguous range.
@@ -154,6 +189,9 @@ export function createTracks(wheels = 4, segments = 170, width = 1.05) {
       // Wound counter-clockwise seen from above, so the faces point up (the other
       // way round they were back-face culled and never drawn at all).
       for (const idx of [a0, a1, b0, b0, a1, b1]) {
+        const tv = (seg * VERTS_PER_SEG + (o / 3 - seg * VERTS_PER_SEG)) * 2;
+        tuv[tv] = LANES[idx % LANES.length].off;
+        tuv[tv + 1] = idx >= LANES.length ? a1d : a0d;
         pos[o] = cx[idx];
         pos[o + 1] = cy[idx];
         pos[o + 2] = cz[idx];
@@ -172,7 +210,7 @@ export function createTracks(wheels = 4, segments = 170, width = 1.05) {
       col[c] = tint[0];
       col[c + 1] = tint[1];
       col[c + 2] = tint[2];
-      col[c + 3] = 0.78;
+      col[c + 3] = LANES[LANE_OF_VERT[v]].a;
       birth[v0 + v] = seqU.value;
     }
   }
@@ -181,6 +219,8 @@ export function createTracks(wheels = 4, segments = 170, width = 1.05) {
     pos.fill(0);
     col.fill(0);
     birth.fill(0);
+    tuv.fill(0);
+    along.fill(0);
     for (const a of A) a.clearUpdateRanges();
     ringHead = 0;
     for (const l of last) l.has = false;
@@ -217,7 +257,7 @@ export function createTracks(wheels = 4, segments = 170, width = 1.05) {
     }
     if (touched) {
       // A single range per attribute (three r170 mis-merges several of them).
-      const sizes = [3, 3, 4, 1];
+      const sizes = [3, 3, 4, 1, 2];
       A.forEach((a, i) => {
         a.clearUpdateRanges();
         if (!upAll) {

@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { pebbleDensity, terrainHeight, groundColorAtXZ, dustDepth } from './terrain.js';
 import { REAL } from './real-mars.js';
+import { beamLit } from './beam.js';
 const REAL_DUST = !!REAL;
 import { PLANET } from './planet.js';
 
@@ -27,7 +28,7 @@ const VACUUM = PLANET === 'moon'; // no air: ballistic grains, no clouds at all
 const MOON_G = 1.62;
 const POOL = 900;
 const WIND = new THREE.Vector3(0.5, 0, 0.2);
-const NIGHT_FLOOR = 0.1;
+const NIGHT_FLOOR = 0.025; // moonlight on the dust: barely there, the lamps do the lighting
 const TAIL_LIT_R = 13;
 
 // 2×2 atlas of lumpy cloud shapes: fbm noise under a soft radial falloff, pushed
@@ -196,7 +197,7 @@ export function createDustTrail() {
 
   const particles = Array.from({ length: POOL }, () => ({
     pos: new THREE.Vector3(), vel: new THREE.Vector3(), col: new THREE.Color(),
-    life: 0, max: 1, base: 1, grow: 1, punch: 1, rot: 0, spin: 0, frame: 0, fine: false, settled: false,
+    life: 0, max: 1, base: 1, grow: 1, punch: 1, rot: 0, spin: 0, frame: 0, fine: false, settled: false, ph: 0,
   }));
   let cursor = 0;
   const acc = [];
@@ -221,6 +222,7 @@ export function createDustTrail() {
     p.frame = Math.floor(Math.random() * 4);
     p.fine = fine;
     p.settled = false;
+    p.ph = Math.random() * 100;
     groundColorAtXZ(x, z, groundCol);
     p.col.copy(groundCol).lerp(dayTint, 0.3);
     // Fine haze reads paler than the clods it lifts off.
@@ -288,7 +290,7 @@ export function createDustTrail() {
           ctx.vz * 0.55 + back.z * 0.6 + (Math.random() - 0.5) * 1.2,
           1.0 + sandiness * 0.8,
           5.5 + sandiness * 3,
-          6 + Math.random() * 4,
+          6 + Math.random() * 4 + Math.min(6, speed * 0.25),
           0.16 + 0.12 * sandiness,
           true
         );
@@ -317,6 +319,14 @@ export function createDustTrail() {
           p.vel.y -= GRAVITY * (p.fine ? 0.08 : 0.45) * dt;
           p.vel.x += WIND.x * gust * dt;
           p.vel.z += WIND.z * gust * dt;
+          // Eddies: the plume billows and tears instead of drifting as one smooth smoke
+          // (thin air carries it high and lets it hang, so it is the fine dust that wanders).
+          if (p.fine) {
+            const e = 0.55 * Math.min(1, k * 4);
+            p.vel.x += Math.sin(time * 0.9 + p.ph) * e * dt + Math.sin(time * 2.3 + p.ph * 1.7) * e * 0.4 * dt;
+            p.vel.z += Math.cos(time * 0.8 + p.ph * 1.3) * e * dt + Math.cos(time * 2.1 + p.ph * 0.9) * e * 0.4 * dt;
+            p.vel.y += Math.sin(time * 1.1 + p.ph * 2.1) * e * 0.35 * dt;
+          }
           p.vel.multiplyScalar(1 - (p.fine ? 0.45 : 1.1) * dt);
           p.pos.addScaledVector(p.vel, dt);
           // Keep the puff's centre about a third of its size above the ground, so it
@@ -343,13 +353,20 @@ export function createDustTrail() {
       }
       p.rot += p.spin * dt;
 
+      // By night the dust is lit by what reaches it: the headlight beams ahead and the
+      // red glow of the tail lamps behind (red, like the lamps); the rest is dark.
       let bright = nightFloor;
-      if (bright < 1 && ctx.tail && ctx.tail.on) {
-        const dx = p.pos.x - ctx.tail.x;
-        const dy = p.pos.y - ctx.tail.y;
-        const dz = p.pos.z - ctx.tail.z;
-        const glow = Math.max(0, 1 - Math.sqrt(dx * dx + dy * dy + dz * dz) / TAIL_LIT_R);
-        bright = Math.max(bright, glow);
+      let tail = 0;
+      if (bright < 1) {
+        if (ctx.head && ctx.head.on) {
+          bright = Math.max(bright, Math.min(1, beamLit(p.pos.x, p.pos.y, p.pos.z, ctx.head.x, ctx.head.y, ctx.head.z, ctx.head.dx, ctx.head.dz) * 1.7));
+        }
+        if (ctx.tail && ctx.tail.on) {
+          const dx = p.pos.x - ctx.tail.x;
+          const dy = p.pos.y - ctx.tail.y;
+          const dz = p.pos.z - ctx.tail.z;
+          tail = Math.max(0, 1 - Math.sqrt(dx * dx + dy * dy + dz * dz) / TAIL_LIT_R);
+        }
       }
       iPos[o3] = p.pos.x;
       iPos[o3 + 1] = p.pos.y;
@@ -358,9 +375,9 @@ export function createDustTrail() {
       iData[o4 + 1] = p.rot;
       iData[o4 + 2] = alpha;
       iData[o4 + 3] = p.frame;
-      iColor[o3] = p.col.r * bright;
-      iColor[o3 + 1] = p.col.g * bright;
-      iColor[o3 + 2] = p.col.b * bright;
+      iColor[o3] = p.col.r * Math.max(bright, tail);
+      iColor[o3 + 1] = p.col.g * Math.max(bright, tail * 0.4);
+      iColor[o3 + 2] = p.col.b * Math.max(bright, tail * 0.35);
     }
     geo.attributes.iPos.needsUpdate = true;
     geo.attributes.iData.needsUpdate = true;
