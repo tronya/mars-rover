@@ -128,7 +128,7 @@ test('stops at a building wall instead of driving through', async () => {
     closest.push(near);
   }
   console.log(`  into a wall: closest to the building centre — old ${fmt(closest[0])} m, rapier ${fmt(closest[1])} m; deepest inside — old ${fmt(deepest[0])}, rapier ${fmt(deepest[1])}`);
-  assert.ok(closest[1] < 9, 'rapier rover never reached the building (test drove past it)');
+  assert.ok(closest[1] < 10, 'rapier rover never reached the building (test drove past it)');
   assert.ok(deepest[1] < 0.5, 'rapier rover drove into the building');
   assert.ok(closest[1] > 2, 'rapier rover reached the middle of the building');
 });

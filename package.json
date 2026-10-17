@@ -6,9 +6,11 @@
     "dev": "vite --port 5173",
     "build": "vite build",
     "preview": "vite preview --port 5173",
-    "test": "node --test --test-reporter=spec tests/vehicle.test.mjs tests/garage-physics.test.mjs && for p in mars moon verdanta; do echo \"== bases on $p\"; TEST_PLANET=$p node --test --test-reporter=spec tests/base.test.mjs || exit 1; done && for c in truck crawler hauler buggy speedster galatea; do echo \"== $c\"; TEST_CHASSIS=$c node --test --test-reporter=spec tests/physics.test.mjs || exit 1; done"
+    "test": "node --test --test-reporter=spec tests/vehicle.test.mjs tests/garage-physics.test.mjs && TEST_PLANET=mars node --test --test-reporter=spec tests/real-mars.test.mjs && for p in mars moon verdanta; do echo \"== bases on $p\"; TEST_PLANET=$p node --test --test-reporter=spec tests/base.test.mjs || exit 1; done && for c in truck crawler hauler buggy speedster galatea; do echo \"== $c\"; TEST_CHASSIS=$c node --test --test-reporter=spec tests/physics.test.mjs || exit 1; done"
   },
   "devDependencies": {
+    "geotiff": "^3.0.5",
+    "pngjs": "^7.0.0",
     "vite": "^6.4.4"
   },
   "dependencies": {

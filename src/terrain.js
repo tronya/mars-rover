@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { PLANET } from './planet.js';
+import { REAL, REAL_ROUTE } from './real-mars.js';
 import { LANDMARK_TYPES, settlementLayout, SETTLEMENT_R } from './landmark-types.js';
 import { BASE_LAYOUTS, baseSolids } from './base-layout.js';
 
@@ -93,6 +94,9 @@ const ROUTES = {
     ],
   },
 };
+// Real Mars (real-mars.js) replaces the S-shaped road with a path that picks its way
+// across the Jezero DTM: control points in world metres, no wander, no scale.
+if (REAL_ROUTE) ROUTES.mars = { scale: 1, wander: 0, control: REAL_ROUTE };
 const ROUTE = ROUTES[PLANET] || ROUTES.mars;
 const ROUTE_SCALE = ROUTE.scale; // tunes the overall length
 const ROUTE_CONTROL = ROUTE.control;
@@ -130,6 +134,21 @@ export const ROUTE_PTS = (() => {
     s += Math.hypot(pts[i].x - pts[i - 1].x, pts[i].z - pts[i - 1].z);
     pts[i].s = s;
   }
+  if (REAL) {
+    // Road surface height: the real ground averaged over ~±250 m, so the road reads as
+    // graded — it follows the land but doesn't copy every bump.
+    const raw = pts.map((p) => REAL.height(p.x, p.z));
+    pts.forEach((p, i) => {
+      let sum = 0, n = 0;
+      for (let k = i; k >= 0 && p.s - pts[k].s <= 250; k--) { sum += raw[k]; n++; }
+      for (let k = i + 1; k < pts.length && pts[k].s - p.s <= 250; k++) { sum += raw[k]; n++; }
+      p.e = sum / n;
+    });
+    // zero the world at АЛЬФА so heights stay in the range the rest of the game expects
+    const ref = pts[0].e;
+    pts.forEach((p) => { p.e -= ref; });
+    REAL.ref = ref;
+  }
   return pts;
 })();
 export const ROUTE_LEN = ROUTE_PTS[ROUTE_PTS.length - 1].s;
@@ -147,7 +166,7 @@ export const BASES = [0, 1].map((i) => {
   let k = end ? n - 1 : 0;
   while (k + dir >= 0 && k + dir < n && Math.abs(ROUTE_PTS[k].s - p.s) < BASE_ROAD_LOOK) k += dir;
   const yaw = Math.atan2(ROUTE_PTS[k].x - p.x, ROUTE_PTS[k].z - p.z);
-  const b = { name: end ? 'БЕТА' : 'АЛЬФА', x: p.x, z: p.z, yaw, layout: BASE_LAYOUTS[i] };
+  const b = { name: end ? 'БЕТА' : 'АЛЬФА', x: p.x, z: p.z, yaw, layout: BASE_LAYOUTS[i], y: p.e || 0 };
   b.cargo = basePoint(b, b.layout.pads[1].x, b.layout.pads[1].z);
   return b;
 });
@@ -193,6 +212,7 @@ const FIELD = (() => {
   const nx = Math.ceil((x1 - x0 + 2 * FMARGIN) / FSTEP) + 2;
   const nz = Math.ceil((z1 - z0 + 2 * FMARGIN) / FSTEP) + 2;
   const d = new Float32Array(nx * nz);
+  const e = new Float32Array(nx * nz); // road surface height at the nearest road point
   const n = ROUTE_PTS.length;
   for (let j = 0; j < nz; j++) {
     const pz = fz0 + j * FSTEP;
@@ -208,6 +228,7 @@ const FIELD = (() => {
         if (dd < bd) { bd = dd; bi = k; }
       }
       let best = bd;
+      let be = ROUTE_PTS[bi].e || 0;
       for (const k of [bi - 1, bi]) {
         if (k < 0 || k >= n - 1) continue;
         const a = ROUTE_PTS[k];
@@ -217,12 +238,14 @@ const FIELD = (() => {
         const t = clamp(((px - a.x) * ex + (pz - a.z) * ez) / (ex * ex + ez * ez), 0, 1);
         const dx = px - (a.x + ex * t);
         const dz = pz - (a.z + ez * t);
-        best = Math.min(best, dx * dx + dz * dz);
+        const dd2 = dx * dx + dz * dz;
+        if (dd2 < best) { best = dd2; be = (a.e || 0) + ((b.e || 0) - (a.e || 0)) * t; }
       }
       d[j * nx + i] = Math.sqrt(best);
+      e[j * nx + i] = be;
     }
   }
-  return { x0: fx0, z0: fz0, nx, nz, d };
+  return { x0: fx0, z0: fz0, nx, nz, d, e };
 })();
 
 export function roadDist(x, z) {
@@ -235,6 +258,19 @@ export function roadDist(x, z) {
   const o = j * FIELD.nx + i;
   const d = FIELD.d;
   return d[o] * (1 - u) * (1 - v) + d[o + 1] * u * (1 - v) + d[o + FIELD.nx] * (1 - u) * v + d[o + FIELD.nx + 1] * u * v;
+}
+
+// Height of the road surface at the road point nearest to (x, z) — same coarse field.
+function roadElevAt(x, z) {
+  const fx = clamp((x - FIELD.x0) / FSTEP, 0, FIELD.nx - 1.001);
+  const fz = clamp((z - FIELD.z0) / FSTEP, 0, FIELD.nz - 1.001);
+  const i = Math.floor(fx);
+  const j = Math.floor(fz);
+  const u = fx - i;
+  const v = fz - j;
+  const o = j * FIELD.nx + i;
+  const e = FIELD.e;
+  return e[o] * (1 - u) * (1 - v) + e[o + 1] * u * (1 - v) + e[o + FIELD.nx] * (1 - u) * v + e[o + FIELD.nx + 1] * u * v;
 }
 
 // Index of the route vertex closest to a point.
@@ -660,7 +696,31 @@ function verdantaHeight(x, z) {
 
 // A graded road across rough country: gentle along the road, hilly, cratered and
 // strewn with boulders once you leave it. Raw: before landmarks level their ground.
+// Real Mars: the DTM is the ground. Along the road it is graded to the road's own
+// profile; far off it, the land is as measured. Small noise on top because 20 m pixels
+// say nothing about what a wheel feels.
+function realMarsHeight(x, z) {
+  const rd = roadDist(x, z);
+  const rough = smooth(ROAD_HALF + 14, ROAD_HALF + 170, rd);
+  const re = roadElevAt(x, z);
+  let h = (REAL.height(x, z) - REAL.ref) * rough + re * (1 - rough);
+  // past the edge of the map, ridges close the world in
+  const over = Math.max(Math.abs(x) - (REAL.halfW - 1500), Math.abs(z) - (REAL.halfH - 1500), 0);
+  if (over > 0) h += smooth(0, 1500, over) * 400;
+  let k = 1;
+  for (const b of BASES) {
+    const f = smooth(BASE_FLAT_R * 0.55, BASE_FLAT_R * 1.7, Math.hypot(x - b.x, z - b.z));
+    h = b.y + (h - b.y) * f;
+    k = Math.min(k, f);
+  }
+  const mid = (fbm(x * 0.06, z * 0.06, 3) - 0.44) * 0.9 * (0.5 + 1.2 * rough);
+  const bumpy = (fbm(x * 0.18 + 9, z * 0.18 + 4, 2) - 0.44) * 0.3 * (0.5 + 2.4 * rough);
+  const small = (vnoise(x * 0.35, z * 0.35) - 0.5) * 0.12;
+  return h + (mid + bumpy + small) * k;
+}
+
 function rawTerrainHeight(x, z) {
+  if (REAL) return realMarsHeight(x, z);
   if (PLANET === 'moon') return moonHeight(x, z);
   if (PLANET === 'verdanta') return verdantaHeight(x, z);
   const rd = roadDist(x, z);
@@ -731,7 +791,7 @@ const lmKey = (i, j) => i * 65536 + j;
 // to rim a little way back from each edge. The deck is ground only for something at
 // its level (see deckRef): drive along the canyon floor and you pass underneath.
 export const BRIDGES = [];
-const BRIDGE_SEEDS = { mars: [[755, -2067]] }[PLANET] || [];
+const BRIDGE_SEEDS = (REAL ? {} : { mars: [[755, -2067]] })[PLANET] || [];
 const BRIDGE_W = 12; // deck width: two of the widest rover side by side, with room to spare
 let deckRef = -Infinity;
 // physics.js sets this to the rover's height each step.

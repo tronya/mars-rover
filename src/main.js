@@ -657,7 +657,7 @@ document.getElementById('sandToggle').addEventListener('click', toggleSand);
 // Travel reloads the page, because planet.js and everything derived from it (gravity,
 // terrain, sky, the mission and debris pools) is read once at module load.
 const PLANET_SUBTITLE = {
-  mars: 'перехід АЛЬФА → БЕТА · ~10 км',
+  mars: 'перехід АЛЬФА → БЕТА · ~8 км',
   moon: 'ФЛЕШБЕК · Місяць · уламки Гермес-1',
   verdanta: 'Верданта · перша висадка',
 };
