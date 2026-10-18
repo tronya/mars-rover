@@ -158,17 +158,18 @@ test('small craters: many, mostly small, none on the road or the base pads', () 
   for (let x = -9000; x < 9000; x += 9) for (let z = -3000; z < 3000; z += 9) {
     const c = smallCraters(x, z);
     n++;
-    if (c < -0.3) deep++;
+    if (c < -0.12) deep++;
     if (c > 0.05) rimUp++;
     minD = Math.min(minD, c);
   }
   // (the last stretch into a base blends to the pad's own level, so skip the pads' skirts)
   for (const p of ROUTE_PTS) { if (BASES.some((b) => Math.hypot(p.x - b.x, p.z - b.z) < 170)) continue; roadN++; if (Math.abs(terrainHeight(p.x, p.z) - p.e) > 0.6) onRoad++; }
   assert.ok(roadN > 300);
-  console.log(`  small craters: ${(100 * deep / n).toFixed(1)} % of ground is bowl deeper than 0.3 m, ${(100 * rimUp / n).toFixed(1)} % rim, deepest ${minD.toFixed(1)} m`);
+  console.log(`  small craters: ${(100 * deep / n).toFixed(1)} % of ground is bowl deeper than 0.12 m, ${(100 * rimUp / n).toFixed(1)} % rim, deepest ${minD.toFixed(1)} m`);
   assert.ok(deep / n > 0.01 && deep / n < 0.3, 'crater coverage out of range');
   assert.ok(rimUp > 0, 'no rims');
-  assert.ok(minD > -6, 'a crater is deeper than a small crater should be');
+  assert.ok(minD > -2, 'a crater is deeper than a small crater should be');
+  assert.ok(minD < -0.5, 'no crater has any depth at all');
   assert.equal(onRoad, 0, 'the road follows crater bowls');
   for (const b of BASES) for (const [dx, dz] of [[20, 0], [-20, 0], [0, 20], [0, -20]]) {
     assert.ok(Math.abs(terrainHeight(b.x + dx, b.z + dz) - terrainHeight(b.x, b.z)) < 1.2, `${b.name} pad is cratered`);

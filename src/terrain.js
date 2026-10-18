@@ -712,8 +712,8 @@ export function sandRipples(x, z) {
 // profile; far off it, the land is as measured. Small noise on top because 20 m pixels
 // say nothing about what a wheel feels.
 // Craters the DTM cannot show: 5-40 m across, the many small ones that outnumber the big
-// (a power-law of sizes), one candidate per 64 m cell, each at a hashed spot. Fresh bowls
-// with a low raised rim. Returns the height they add at (x, z), metres (negative inside).
+// (a power-law of sizes), one candidate per 64 m cell, each at a hashed spot. Old, soft
+// bowls with a low raised rim: fresh ones are 5x deeper and are walls to a rover at speed. Returns the height they add at (x, z), metres (negative inside).
 const SC_CELL = 64;
 const SC_RMAX = 20;
 export function smallCraters(x, z) {
@@ -730,7 +730,7 @@ export function smallCraters(x, z) {
       const cx = (a + 0.2 + 0.6 * hash(a + 3 + n, b + 91)) * SC_CELL, cz = (b + 0.2 + 0.6 * hash(a + 57, b + 13 + n)) * SC_CELL;
       const t = Math.hypot(x - cx, z - cz) / r;
       if (t > 1.7) continue;
-      const depth = 0.24 * r;
+      const depth = 0.08 * r; // old, degraded bowls (depth/diameter ~0.04): a rover can cross them at speed
       if (t < 1) bowl = Math.min(bowl, -depth * (1 - t * t) * (1 - 0.25 * t * t));
       else rim += depth * 0.14 * Math.exp(-(((t - 1.08) / 0.3) ** 2));
     }
