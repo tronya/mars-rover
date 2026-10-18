@@ -1237,7 +1237,8 @@ function resetVehicle(home = false) {
 // off and sets it on the flattest clear ground within a few metres, facing the same way.
 function isHung() {
   const touching = sim.wheels.filter((w) => w.contact).length;
-  return sim.upY > 0.5 && touching <= 1 && Math.abs(sim.speed) < 1.5;
+  // half the wheels (or fewer) on the ground and going nowhere: propped on the hull, not driving
+  return sim.upY > 0.5 && touching <= sim.wheels.length / 2 && Math.abs(sim.speed) < 1.2;
 }
 function unstick() {
   const yaw = sim.yaw();

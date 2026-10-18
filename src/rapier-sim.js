@@ -185,7 +185,7 @@ export class RapierVehicleSim extends VehicleSim {
         R.ColliderDesc.cuboid(0.12, 0.55 * w.R, 0.55 * w.R)
           .setTranslation(w.s * face, hy, w.z - COM.z)
           .setDensity(0)
-          .setFriction(0.6),
+          .setFriction(0.15),
         body
       );
     }
