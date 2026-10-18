@@ -65,11 +65,15 @@ function build(meta, bytes, albedoBytes) {
     const u = fx - i, v = fz - j;
     return at(i, j) * (1 - u) * (1 - v) + at(i + 1, j) * u * (1 - v) + at(i, j + 1) * (1 - u) * v + at(i + 1, j + 1) * u * v;
   }
-  // 0..1 brightness of the ground from the CTX orthoimage, nearest pixel
+  // 0..1 brightness of the ground from the orbiter image, bilinear: nearest-pixel made the
+  // dust (tint and drag both) change in square steps one map pixel wide.
   function albedo(x, z) {
-    const i = Math.min(W - 1, Math.max(0, Math.round((x + halfW) / mppX)));
-    const j = Math.min(H - 1, Math.max(0, Math.round((z + halfH) / mppY)));
-    return albedoBytes[j * W + i] / 255;
+    const fx = Math.min(W - 1.001, Math.max(0, (x + halfW) / mppX));
+    const fz = Math.min(H - 1.001, Math.max(0, (z + halfH) / mppY));
+    const i = Math.floor(fx), j = Math.floor(fz);
+    const u = fx - i, v = fz - j;
+    const a = albedoBytes;
+    return (a[j * W + i] * (1 - u) * (1 - v) + a[j * W + i + 1] * u * (1 - v) + a[(j + 1) * W + i] * (1 - u) * v + a[(j + 1) * W + i + 1] * u * v) / 255;
   }
   // Slope (rise over run) per pixel, once, so asking for it costs one lookup
   const slopeGrid = new Float32Array(W * H);
