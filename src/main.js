@@ -10,7 +10,7 @@ import { CHASSIS, SPEC, CHASSIS_LIST, WHEEL_DEFS, setChassis } from './chassis.j
 import { VehicleSim, HoverSim, PLANET } from './physics.js';
 import { apSpeed } from './autopilot.js';
 let pilotPrevSpeed = 0;
-let apStuck = 0, apBack = 0, apBackSteer = 1; // autopilot back-away recovery
+let apStuck = 0, apBack = 0, apBackSteer = 1, apLastBack = -999; // autopilot back-away recovery
 import { createTerrain, groundHeight, terrainHeight, BASES, roadSpawn, setViewScale, waterDepthAt, getSettlement, roadDist, ROAD_HALF, deckHeight, ROUTE_LEN, dustDepth, pebbleDensity, ROUTE_PTS, nearestRouteIndex } from './terrain.js';
 import { buildBase, updateBases } from './base.js';
 import { createAudio } from './audio.js';
@@ -1174,7 +1174,7 @@ const hudHint = document.getElementById('hint');
 const btnAuto = document.getElementById('autopilot');
 const btnReset = document.getElementById('reset');
 // The autopilot parks, unfolds, charges to full, folds and carries on by itself.
-const auto = { state: 'drive' };
+const auto = { state: 'drive', t: 0 };
 
 function setAutopilot(on) {
   if (on && !upgrades.unlocked('autopilot')) {
@@ -1525,6 +1525,22 @@ function drawCompass(yaw, targets) {
 const AUTO_LABEL = { drive: 'АВТОПІЛОТ', stopping: 'АВТОПІЛОТ: ЗУПИНКА',
   charging: 'АВТОПІЛОТ: ЗАРЯДКА', stowing: 'АВТОПІЛОТ: ЗБІР КРИЛ' };
 
+function detourPoint() {
+  const yaw = sim.yaw();
+  const fx = Math.sin(yaw), fz = Math.cos(yaw);
+  const rocks = (side) => {
+    let n = 0;
+    for (let k = 1; k <= 12; k++) {
+      const x = sim.pos.x + fx * 20 * (k / 12) + fz * side * 70 * (k / 12);
+      const z = sim.pos.z + fz * 20 * (k / 12) - fx * side * 70 * (k / 12);
+      if (groundHeight(x, z) - terrainHeight(x, z) > 0.4) n++;
+    }
+    return n;
+  };
+  const side = rocks(1) <= rocks(-1) ? 1 : -1;
+  return { x: sim.pos.x + fx * 20 + fz * side * 70, z: sim.pos.z + fz * 20 - fx * side * 70 };
+}
+
 function autopilotInput() {
   if (auto.state === 'drive' && power.battery <= 0.6) auto.state = 'stopping';
   // Someone left the wings out; fold them before moving.
@@ -1572,7 +1588,14 @@ function autopilotInput() {
   // Nose against something it cannot get round (a boulder it saw too late, a scarp): back
   // away, wheel turned the other way from the dodge, then try again from further off.
   if (Math.abs(sim.speed) < 0.5 && vWant > 1) apStuck += 1 / 60; else if (apBack <= 0) apStuck = 0;
-  if (apStuck > 2.5 && apBack <= 0) { apBack = 3; apBackSteer = bias >= 0 ? -1 : 1; apStuck = 0; }
+  if (apStuck > 2.5 && apBack <= 0) {
+    apBack = 3; apBackSteer = bias >= 0 ? -1 : 1; apStuck = 0;
+    // Pinned again soon after the last time: a rock field. Go round it — a detour
+    // waypoint 70 m to the side with fewer boulders, then on to the real target.
+    if (auto.t - apLastBack < 40) route.unshift(detourPoint());
+    apLastBack = auto.t;
+  }
+  auto.t += 1 / 60;
   if (apBack > 0) {
     apBack -= 1 / 60;
     return { throttle: -0.7, steerTo: apBackSteer, brake: 0, boost: false };
