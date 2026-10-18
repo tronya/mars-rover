@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { VehicleSim, GRAVITY, motorFor } from './physics.js';
+import { VehicleSim, GRAVITY, motorFor, ROLL_BOG_MAX } from './physics.js';
 import { groundHeight, deckHeight, dustDepth, landmarkWall, setDeckRef, waterDepthAt } from './terrain.js';
 import { CHASSIS, chassisKit } from './chassis.js';
 
@@ -419,7 +419,7 @@ export class RapierVehicleSim extends VehicleSim {
     const vh = Math.hypot(v.x, v.z);
     const contacts = this.wheels.filter((w) => w.contact).length;
     if (vh > 0.01 && contacts) {
-      const resist = (ROLLING_RES * this.rollMul * (1 + 0.8 * dust) * WEIGHT * contacts) / NW + k.DRAG_V2 * this.dragMul * vh * vh;
+      const resist = (ROLLING_RES * Math.min(this.rollMul * (1 + 0.8 * dust), ROLL_BOG_MAX) * WEIGHT * contacts) / NW + k.DRAG_V2 * this.dragMul * vh * vh;
       const f = Math.min(resist, (MASS * vh) / h) / vh;
       body.addForce({ x: -v.x * f, y: 0, z: -v.z * f }, true);
     }

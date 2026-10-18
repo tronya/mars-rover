@@ -125,6 +125,9 @@ const BRAKE_FORCE = 3.2 * CORNER; // per wheel
 // Regolith is soft: a rover that stops pulling slows down noticeably. The linear
 // term is rolling resistance, the quadratic one stands in for churning through dust.
 const ROLLING_RES = 0.17;
+// A road car in deep dust (rollMul 3.2 x dust 1.8) had rolling drag of ~1x its own weight: stuck
+// for good. It should bog down and crawl, not stop; this caps the total at 3x (0.5 W).
+export const ROLL_BOG_MAX = 3.0;
 const TRACTION_SHARE = 0.7; // how much of a tyre's grip the motor may use to accelerate
 const DRAG_V2 = 22 * (SPEC.drag ?? 1); // N per (m/s)^2 — less for a low, light body
 const DOWNFORCE = SPEC.downforce ?? 0; // N per (m/s)^2
@@ -670,7 +673,7 @@ export class VehicleSim {
       let Fx;
       if (cmd.parked) Fx = -grip * Math.tanh(vx / 0.05);
       else {
-        const resist = cmd.brake * BRAKE_FORCE + ROLLING_RES * this.rollMul * (1 + 0.8 * dust) * N + (DRAG_V2 * this.dragMul * vx * vx) / NW;
+        const resist = cmd.brake * BRAKE_FORCE + ROLLING_RES * Math.min(this.rollMul * (1 + 0.8 * dust), ROLL_BOG_MAX) * N + (DRAG_V2 * this.dragMul * vx * vx) / NW;
         const isDriven = this.awd || !w.front;
         // Skid steer (tank-style): no wheel turns; one side is driven harder, or the
         // other way, than the other. Steering left slows or reverses the left side.
