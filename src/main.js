@@ -1285,6 +1285,8 @@ const EXPLORED_KEY = `rover.explored.${REAL ? REAL.region : PLANET}`;
 try { minimap.importExplored(localStorage.getItem(EXPLORED_KEY)); } catch (e) { /* storage may be blocked */ }
 const exploredState = { next: 0, saveAt: 0, text: '' };
 const hudExplored = document.getElementById('exploredStat');
+const hudGround = document.getElementById('groundStat');
+let groundText = '';
 function stepExplored(t) {
   if (t < exploredState.next) return;
   exploredState.next = t + 0.5;
@@ -2325,6 +2327,12 @@ function frame() {
     }
   }
 
+  {
+    const d = dustDepth(sim.pos.x, sim.pos.z);
+    const onRoad = roadDist(sim.pos.x, sim.pos.z) < ROAD_HALF * 0.6;
+    const gt = onRoad ? 'дорога' : d > 0.6 ? 'глибокий пил' : d > 0.25 ? 'пил' : pebbleDensity(sim.pos.x, sim.pos.z) > 0.55 ? 'щебінь' : 'тверде';
+    if (gt !== groundText) { groundText = gt; hudGround.textContent = gt; }
+  }
   hudSpeed.textContent = SPEC.flight
     ? `${(speedAbs * 3.6).toFixed(0)} км/год · ↕ ${Math.max(0, sim.height()).toFixed(0)} м`
     : `${(speedAbs * 3.6).toFixed(0)} км/год · ${SPEC.driveLabel[sim.awd ? 0 : 1]}`;
