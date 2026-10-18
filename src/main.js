@@ -256,7 +256,7 @@ const TOWN = getSettlement();
 const jobs = createJobs();
 scene.add(jobs.group);
 // A long trip through real places, started with X (expedition.js).
-const expedition = createExpedition({ places: REAL_PLACES, bases: BASES });
+const expedition = createExpedition({ places: REAL_PLACES.map((p) => ({ ...p, x: p.goal.x, z: p.goal.z })), bases: BASES });
 // Meteorite fragments off the road (finds.js).
 const finds = createFinds();
 scene.add(finds.group);
@@ -1225,10 +1225,37 @@ function resetVehicle(home = false) {
     odo.last = null;
     terrain.prime(sim.pos.x, sim.pos.z);
     tracks.clear();
+  } else if (isHung()) {
+    unstick();
   } else {
     startRighting();
   }
   camYaw = sim.yaw();
+}
+
+// Belly on a boulder: the wheels turn in the air and nothing moves. R lifts the rover
+// off and sets it on the flattest clear ground within a few metres, facing the same way.
+function isHung() {
+  const touching = sim.wheels.filter((w) => w.contact).length;
+  return sim.upY > 0.5 && touching <= 1 && Math.abs(sim.speed) < 1.5;
+}
+function unstick() {
+  const yaw = sim.yaw();
+  const fx = Math.sin(yaw), fz = Math.cos(yaw);
+  let best = null;
+  for (const d of [-9, -6, -4, 4, 6, 9]) for (const o of [-6, -3, 0, 3, 6]) {
+    const x = sim.pos.x + fx * d + fz * o, z = sim.pos.z + fz * d - fx * o;
+    let lo = Infinity, hi = -Infinity;
+    for (const [dx, dz] of [[0, 0], [2, 0], [-2, 0], [0, 3], [0, -3], [2, 3], [-2, -3]]) {
+      const h = groundHeight(x + dx, z + dz);
+      lo = Math.min(lo, h); hi = Math.max(hi, h);
+    }
+    const score = (hi - lo) + 0.02 * Math.abs(d);
+    if (!best || score < best.score) best = { x, z, score };
+  }
+  sim.reset(best.x, best.z, yaw);
+  tracks.clear();
+  flash('Ровер знято з каменя');
 }
 
 // ---------- route: waypoints the autopilot drives through ----------
@@ -1584,6 +1611,8 @@ const UP = new THREE.Vector3(0, 1, 0);
 let camYaw = sim.yaw();
 let camY = sim.pos.y;
 let flippedFor = 0;
+let hungFor = 0;
+const HINT_FLIPPED = 'Перевернулись? Натисни R, щоб поставити на колеса';
 let camMode = 0;
 let orbitAngle = 0;
 const ORBIT_IDLE = 4; // s without camera input before the orbit camera circles again
@@ -1843,7 +1872,10 @@ function frame() {
   sun.target.position.copy(sim.pos);
 
   flippedFor = sim.upY < 0.55 && speedAbs < 2.5 && righting.t <= 0 ? flippedFor + dt : 0;
-  hudHint.classList.toggle('show', flippedFor > 1.0);
+  hungFor = isHung() && Math.abs(sim.cmd.throttle) > 0.3 && righting.t <= 0 ? hungFor + dt : 0;
+  const hintText = hungFor > 1.5 && flippedFor <= 1.0 ? 'Застрягли на камені? Натисни R, щоб зняти ровер' : HINT_FLIPPED;
+  if (hudHint.textContent !== hintText) hudHint.textContent = hintText;
+  hudHint.classList.toggle('show', flippedFor > 1.0 || hungFor > 1.5);
   // ---------- workshop upgrades ----------
   sim.powerMul = upgrades.mul('motor');
   sim.suspMul = upgrades.mul('suspension');
@@ -2377,6 +2409,6 @@ try {
 } catch (e) { /* storage may be blocked */ }
 
 // debug hook: inspect state and scrub the sol from the console
-window.game = { expedition, finds, garage, loose, kickup, applyPreset, dirt, tracks, weather, contactShadow, vehicle, landmarks, jobs, npcs, roadPosts, missions, debris, upgrades, dust, sonar, get sonarScan() { return sonarScan; }, sim, camera, controls, power, renderer, scene, terrain, post, sunShadows, ambient, route, minimap, auto, sand, grass, water, splash, setTime: (t) => { timeOfDay = t % 1; }, get timeOfDay() { return timeOfDay; } };
+window.game = { righting, expedition, finds, garage, loose, kickup, applyPreset, dirt, tracks, weather, contactShadow, vehicle, landmarks, jobs, npcs, roadPosts, missions, debris, upgrades, dust, sonar, get sonarScan() { return sonarScan; }, sim, camera, controls, power, renderer, scene, terrain, post, sunShadows, ambient, route, minimap, auto, sand, grass, water, splash, setTime: (t) => { timeOfDay = t % 1; }, get timeOfDay() { return timeOfDay; } };
 document.getElementById('loading').classList.add('hidden');
 frame();

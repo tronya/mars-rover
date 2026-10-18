@@ -141,7 +141,7 @@ export function createJobs() {
       title: `Керн ґрунту: ${p.name}`,
       brief: [[DISPATCH, `Сьомий, науковцям потрібен зразок із місця «${p.name}». ${p.blurb || ''} Під’їдь, зупинись і дай бурові пропрацювати, а потім відвези зразок до ${home.label}.`.replace('  ', ' ')]],
       steps: [
-        { type: 'hold', text: `бурити зразок: ${p.name}`, at: { x: p.x, z: p.z }, secs: 9 },
+        { type: 'hold', text: `бурити зразок: ${p.name}`, at: { x: p.goal.x, z: p.goal.z }, secs: 9 },
         { type: 'deliver', text: `відвезти зразок до ${home.label}`, at: home },
       ],
       pay: Math.round(6 + dist / 400),

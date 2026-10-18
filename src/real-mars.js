@@ -210,6 +210,26 @@ export const REAL_PLACES = REAL
   ]
   : [];
 
+// A place can sit on a scarp no rover can climb (Уступ is 30 degrees). `goal` is where a
+// trip to it should end: the nearest gently sloping ground, searched outwards.
+function driveableNear(p) {
+  if (!REAL || REAL.slope(p.x, p.z) < 0.14) return { x: p.x, z: p.z };
+  for (let r = 40; r <= 800; r += 40) {
+    let best = null;
+    for (let k = 0; k < 24; k++) {
+      const a = (k / 24) * Math.PI * 2;
+      const x = p.x + Math.cos(a) * r, z = p.z + Math.sin(a) * r;
+      if (Math.abs(x) > REAL.halfW - 300 || Math.abs(z) > REAL.halfH - 300) continue;
+      let worst = REAL.slope(x, z);
+      for (let j = 0; j < 8; j++) worst = Math.max(worst, REAL.slope(x + Math.cos(j * 0.785) * 30, z + Math.sin(j * 0.785) * 30));
+      if (worst < 0.14 && (!best || worst < best.worst)) best = { x, z, worst };
+    }
+    if (best) return { x: best.x, z: best.z };
+  }
+  return { x: p.x, z: p.z };
+}
+for (const p of REAL_PLACES) p.goal = driveableNear(p);
+
 // Radio chatter on the way, per region: `at` is how far along the road (0 = the base you
 // left, 1 = the one you are heading for) it comes on, once a session. Оріон talks about
 // the ground you are actually driving over; the facts are the real ones (landing dates,

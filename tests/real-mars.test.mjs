@@ -240,3 +240,11 @@ test('HUD attitude: altitude and tilt read right', async () => {
   // and the HUD's zero: the base sits at REAL.ref metres on the real map
   assert.ok(Number.isFinite(REAL.ref), 'the base height is a number'); // below the datum in Jezero and Gale, 14 km above it on Olympus
 });
+
+test('every named place has a drive-to goal on gentle ground, not far from the place', () => {
+  for (const p of REAL_PLACES) {
+    assert.ok(p.goal && Number.isFinite(p.goal.x), `${p.name} has no goal`);
+    assert.ok(Math.hypot(p.goal.x - p.x, p.goal.z - p.z) <= 800, `${p.name}: goal too far`);
+    assert.ok(REAL.slope(p.goal.x, p.goal.z) < 0.2, `${p.name}: goal on a ${REAL.slope(p.goal.x, p.goal.z)} slope`);
+  }
+});
