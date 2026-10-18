@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { lamp } from './glow.js';
 import { PLANET } from './planet.js';
+import { REAL_PLACES } from './real-mars.js';
 import { getLandmarks, groundHeight, BASES, LAB } from './terrain.js';
 
 // Side jobs: small errands handed out over the radio, each built around one of the
@@ -123,7 +124,37 @@ export function createJobs() {
 
   // --- building a job ---
   let lastKind = null;
+  // A science errand on the real map: drive to a named place and drill a core sample,
+  // then bring it to the nearest base. Only exists where there are real places.
+  function sampleJob(rx, rz) {
+    const reach = REAL_PLACES.filter((p) => {
+      const d = Math.hypot(p.x - rx, p.z - rz);
+      return d > 120 && d < 6000 && p !== lastPlace;
+    });
+    if (!reach.length) return null;
+    const p = pickOne(reach, rand);
+    lastPlace = p;
+    const home = nearestDepotFor(p.x, p.z);
+    const dist = Math.hypot(p.x - rx, p.z - rz) + Math.hypot(home.x - p.x, home.z - p.z);
+    return {
+      title: `Керн ґрунту: ${p.name}`,
+      brief: [[DISPATCH, `Сьомий, науковцям потрібен зразок із місця «${p.name}». ${p.blurb || ''} Під’їдь, зупинись і дай бурові пропрацювати, а потім відвези зразок до ${home.label}.`.replace('  ', ' ')]],
+      steps: [
+        { type: 'hold', text: `бурити зразок: ${p.name}`, at: { x: p.x, z: p.z }, secs: 9 },
+        { type: 'deliver', text: `відвезти зразок до ${home.label}`, at: home },
+      ],
+      pay: Math.round(6 + dist / 400),
+      done: [[DISPATCH, `Зразок із «${p.name}» у лабораторії. Геологи в захваті.`]],
+      site: p,
+    };
+  }
+  let lastPlace = null;
+
   function makeJob(rx, rz, avoid) {
+    if (REAL_PLACES.length && lastKind !== 'sample' && rand() < 0.35) {
+      const sj = sampleJob(rx, rz);
+      if (sj) { lastKind = 'sample'; return sj; }
+    }
     const pool = landmarks.filter((L) => L.kind && L !== avoid);
     if (!pool.length) return null;
     const near = pool.filter((L) => {
