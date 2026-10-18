@@ -10,6 +10,7 @@ import { CHASSIS, SPEC, CHASSIS_LIST, WHEEL_DEFS, setChassis } from './chassis.j
 import { VehicleSim, HoverSim, PLANET } from './physics.js';
 import { apSpeed } from './autopilot.js';
 let pilotPrevSpeed = 0;
+let offroadSm = 0;
 let apStuck = 0, apBack = 0, apBackSteer = 1, apLastBack = -999; // autopilot back-away recovery
 import { createTerrain, groundHeight, terrainHeight, BASES, roadSpawn, setViewScale, waterDepthAt, getSettlement, roadDist, ROAD_HALF, deckHeight, ROUTE_LEN, dustDepth, pebbleDensity, ROUTE_PTS, nearestRouteIndex } from './terrain.js';
 import { buildBase, updateBases } from './base.js';
@@ -1922,7 +1923,11 @@ function frame() {
     const rd = roadDist(sim.pos.x, sim.pos.z);
     // A bridge deck is paved: no bogging down on it.
     const onDeck = Math.abs(sim.pos.y - deckHeight(sim.pos.x, sim.pos.z)) < 3;
-    const off = onDeck ? 0 : clamp((rd - ROAD_HALF * 0.6) / 24, 0, 1);
+    const offRaw = onDeck ? 0 : clamp((rd - ROAD_HALF * 0.6) / 60, 0, 1);
+    // Eased (~1.2 s): leaving the graded strip at 40 m/s used to change the rolling drag
+    // from one frame to the next, a jerk in speed at the road's edge.
+    offroadSm += (offRaw - offroadSm) * (1 - Math.exp(-dt / 1.2));
+    const off = offroadSm;
     offroadK = off;
     sim.rollMul = (0.7 + 0.3 * off) * (1 + (TR.offRoll - 1) * off);
     sim.dragMul = 1 + (TR.offDrag - 1) * off;
