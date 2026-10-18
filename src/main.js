@@ -17,6 +17,7 @@ import { createSeeds, seedsDelivered, LAB } from './seeds.js';
 import { createLandmarks } from './landmarks.js';
 import { createJobs } from './jobs.js';
 import { createFinds } from './finds.js';
+import { createExpedition } from './expedition.js';
 import { createNPCs } from './npc.js';
 import { createTracks } from './tracks.js';
 import { createSand } from './sand.js';
@@ -254,6 +255,8 @@ const TOWN = getSettlement();
 // Side jobs around those landmarks, handed out over the radio (jobs.js).
 const jobs = createJobs();
 scene.add(jobs.group);
+// A long trip through real places, started with X (expedition.js).
+const expedition = createExpedition({ places: REAL_PLACES, bases: BASES });
 // Meteorite fragments off the road (finds.js).
 const finds = createFinds();
 scene.add(finds.group);
@@ -919,6 +922,15 @@ window.addEventListener('keydown', (e) => {
   if (e.code === 'KeyE') return togglePanels();
   if (e.code === 'KeyL') return cycleLamps();
   if (e.code === 'KeyT') return cycleTyres();
+  if (e.code === 'KeyX') {
+    if (expedition.active) { flash(expedition.cancel().text); return; }
+    const ev = expedition.start(sim.pos.x, sim.pos.z);
+    if (!ev) return flash('Експедиція є на справжніх картах: Єзеро, Гейл, Олімп');
+    jobs.skip();
+    flash(ev.text);
+    say([['ОРІОН · керівник зміни', `Експедиція: ${ev.stops.map((st) => st.name).join(' → ')}. Їдь у своєму темпі, Сьомий.`]]);
+    return;
+  }
   if (e.code === 'KeyK') return void toggleSound();
   if (e.code === 'KeyO') return menuEl.classList.toggle('show');
   if (e.code === 'KeyU') { wsAuto = false; return toggleWorkshop(); }
@@ -2111,7 +2123,18 @@ function frame() {
   updateBases(daylight);
   npcs.update(dt, t, sim.pos, 1 - daylight);
   {
-    const ev = jobs.update(t, dt, sim.pos.x, sim.pos.z, sim.speed);
+    const xe = expedition.update(dt, sim.pos.x, sim.pos.z);
+    if (xe) {
+      flash(xe.text);
+      if (xe.lines) say(xe.lines);
+      if (xe.type === 'done') {
+        progress.addBonusScrap(xe.pay);
+        if (audio) { audio.beep(880); setTimeout(() => audio.beep(1320), 150); }
+      } else if (audio) audio.beep(1040, 0.1);
+    }
+  }
+  {
+    const ev = expedition.active ? null : jobs.update(t, dt, sim.pos.x, sim.pos.z, sim.speed);
     if (ev) {
       flash(ev.text);
       if (ev.lines) say(ev.lines);
@@ -2122,7 +2145,8 @@ function frame() {
         audio.beep(ev.type === 'offer' ? 660 : 1040, 0.1);
       }
     }
-    const jh = jobs.hud();
+    const xh = expedition.hud(sim.pos.x, sim.pos.z);
+    const jh = xh ? { title: xh.title, text: xh.text, gauge: null, clock: 'X — скасувати' } : jobs.hud();
     jobBoxEl.classList.toggle('on', !!jh);
     if (jh) {
       jobTitleEl.textContent = jh.title;
@@ -2248,7 +2272,7 @@ function frame() {
     compassTargets.push({ x: LAB.x, z: LAB.z, kind: 'square', text: 'Л', color: '#7ce68f' });
   }
   for (const b of BASES) compassTargets.push({ x: b.x, z: b.z, kind: 'square', text: b.name[0], color: '#4fe0ff' });
-  compassTargets.push(...jobs.targets());
+  compassTargets.push(...jobs.targets(), ...expedition.targets());
   compassTargets.push(...finds.targets(sim.pos.x, sim.pos.z));
   if (TOWN) compassTargets.push({ x: TOWN.x, z: TOWN.z, kind: 'square', text: 'О', color: '#ffd08a' });
   for (const p of REAL_PLACES) compassTargets.push({ x: p.x, z: p.z, kind: 'square', text: p.letter, color: '#ffd08a' });
@@ -2263,7 +2287,7 @@ function frame() {
     }
   }
   drawCompass(sim.yaw(), compassTargets);
-  minimap.setDynamic(jobs.targets());
+  minimap.setDynamic([...jobs.targets(), ...expedition.targets()]);
   stepExplored(t);
   if (!map3dEl.classList.contains('hidden')) minimap.update(sim, dt);
   sunShadows.update();
@@ -2353,6 +2377,6 @@ try {
 } catch (e) { /* storage may be blocked */ }
 
 // debug hook: inspect state and scrub the sol from the console
-window.game = { garage, loose, kickup, applyPreset, dirt, tracks, weather, contactShadow, vehicle, landmarks, jobs, npcs, roadPosts, missions, debris, upgrades, dust, sonar, get sonarScan() { return sonarScan; }, sim, camera, controls, power, renderer, scene, terrain, post, sunShadows, ambient, route, minimap, auto, sand, grass, water, splash, setTime: (t) => { timeOfDay = t % 1; }, get timeOfDay() { return timeOfDay; } };
+window.game = { expedition, finds, garage, loose, kickup, applyPreset, dirt, tracks, weather, contactShadow, vehicle, landmarks, jobs, npcs, roadPosts, missions, debris, upgrades, dust, sonar, get sonarScan() { return sonarScan; }, sim, camera, controls, power, renderer, scene, terrain, post, sunShadows, ambient, route, minimap, auto, sand, grass, water, splash, setTime: (t) => { timeOfDay = t % 1; }, get timeOfDay() { return timeOfDay; } };
 document.getElementById('loading').classList.add('hidden');
 frame();
