@@ -99,6 +99,23 @@ const AWD_UP = 40 / 3.6;
 const AWD_DOWN = 36 / 3.6;
 // Steering behaves like a wheel, not a spring: the angle stays where it is left.
 const MECH_STEER = 0.56; // mechanical lock at the knuckle
+// How much of the lock the front tyres can actually use at a given speed. Past the angle
+// where the cornering force reaches what the grip allows, more lock only makes the nose
+// plough straight on; on Mars (g = 3.71) that angle is tiny at 80 km/h. So the wheel's
+// travel shrinks with speed: full lock below a walking-fast pace, a degree or two flat
+// out. Without it the rover cannot be steered at all in a valley sprint and spins out.
+const WHEELBASE = Math.abs(SPEC.axleZ[0] - SPEC.axleZ[SPEC.axleZ.length - 1]) || 3;
+const GRIP_ANGLE_K = 1.25; // a little past the grip limit: the tail may step out, not the whole car
+// The other limit is the roll-over one: sideways acceleration at which the inside wheels
+// lift is about g × half-track ÷ centre-of-mass height. On Mars that is under 1.5 m/s² for a
+// tall truck, lower than what the tyres hold, so it is the roll-over that decides.
+const ROLL_LIMIT = 0.75 * GRAVITY * (SPEC.wheelX || 1.7) / (Math.abs(SPEC.comY) + 0.9);
+export function steerAuthority(speed, gripMul = 1) {
+  const v = Math.max(Math.abs(speed), 0.5);
+  const aLat = Math.min(GRIP_ANGLE_K * MU * gripMul * GRAVITY, ROLL_LIMIT);
+  const limit = Math.atan((aLat * WHEELBASE) / (v * v));
+  return Math.min(1, Math.max(0.06, limit / MECH_STEER));
+}
 const SKID = !!SPEC.skidSteer; // tank-style: steer by driving the two sides apart
 // Time to wind the wheel from centre to full lock. Scaling the rate to the current
 // lock keeps that time the same at any speed; a fixed rad/s hit the (small) lock at
@@ -108,6 +125,7 @@ const BRAKE_FORCE = 3.2 * CORNER; // per wheel
 // Regolith is soft: a rover that stops pulling slows down noticeably. The linear
 // term is rolling resistance, the quadratic one stands in for churning through dust.
 const ROLLING_RES = 0.17;
+const TRACTION_SHARE = 0.7; // how much of a tyre's grip the motor may use to accelerate
 const DRAG_V2 = 22 * (SPEC.drag ?? 1); // N per (m/s)^2 — less for a low, light body
 const DOWNFORCE = SPEC.downforce ?? 0; // N per (m/s)^2
 const DOWNFORCE_MAX = 1.6 * MASS * GRAVITY;
@@ -317,10 +335,10 @@ export class VehicleSim {
     c.brake = brake;
     c.boost = !!input.boost;
     c.parked = throttle === 0 && brake === 0 && this.vel.length() < 1.2 && this.upY > 0.7;
-    // Full mechanical lock at any speed — no speed-scaled cap. Crank the wheel hard
-    // at speed now and the tyres can't deliver that turn radius; the rover slides,
-    // trips over its own grip and can genuinely roll, instead of being kept safe.
-    const maxSteer = MECH_STEER;
+    // The lock available shrinks with speed (steerAuthority): beyond what the tyres can
+    // deliver the extra angle only scrubs speed and sends the rover into a slide. A tank-
+    // steered chassis turns by driving its sides apart, so it keeps its full range.
+    const maxSteer = SKID ? MECH_STEER : MECH_STEER * steerAuthority(this.speed, this.gripMul);
     this.maxSteer = maxSteer;
     // A skid-steered rover turns on the spot: holding the wheel is not parking.
     if (this.skidSteer && Math.abs(input.steer || input.steerTo || 0) > 0.02) c.parked = false;
@@ -660,7 +678,11 @@ export class VehicleSim {
             skidBrake = a * 0.3 * BRAKE_FORCE * Math.min(1, Math.abs(speed) / 2);
           }
         }
-        const drive = isDriven ? this.driveForce(thr, speed) / driven : 0;
+        // A tyre cannot push harder than it grips (and the motor must leave some for
+        // steering): past that the pull only tips the nose up. Capped at a share of the grip.
+        const driveWant = isDriven ? this.driveForce(thr, speed) / driven : 0;
+        const driveCap = TRACTION_SHARE * grip;
+        const drive = Math.max(-driveCap, Math.min(driveCap, driveWant));
         Fx = drive - (resist + skidBrake) * Math.tanh(vx / 0.4);
       }
       let Fy = -grip * Math.tanh(vy / (cmd.parked ? 0.05 : 0.15));

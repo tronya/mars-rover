@@ -83,6 +83,8 @@ const smooth01 = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b -
 // a little less side grip lets a hard turn slide before it rolls the body over.
 const SIDE_GRIP = 1;
 const ROLLING_RES = 0.17;
+// How much of a tyre's grip the motor may use to accelerate; the rest is kept for steering.
+const TRACTION_SHARE = 0.7;
 const MECH_STEER = 0.56;
 const SKID_GAIN = 2.0; // tuned so a pivot turn matches physics.js (tests/physics.test.mjs)
 const AWD_UP = 40 / 3.6;
@@ -373,7 +375,13 @@ export class RapierVehicleSim extends VehicleSim {
       if (SKID) {
         skidMean += forces[i] / NW;
         if (this.wheels[i].contact) skidTorque += -w.x * forces[i] * SKID_GAIN;
-      } else ctl.setWheelEngineForce(i, forces[i]);
+      } else {
+        // A tyre cannot push harder than it grips: past that the pull only tips the nose up
+        // (a wheelie) and the slam back down bounces the hull. Cap the engine force at a
+        // share of what this wheel's load can hold, whatever the motor could deliver.
+        const hold = TRACTION_SHARE * SPEC.mu * (w.mu ?? 1) * this.gripMul * upright * (this.wheels[i].Fs || 0);
+        ctl.setWheelEngineForce(i, Math.max(-hold, Math.min(hold, forces[i])));
+      }
       ctl.setWheelSteering(i, k.steerAngle(w, cmd.steer, speed));
       // Rapier's brake is an impulse budget per step; parked means hold firm.
       const brakeF = cmd.parked ? BRAKE_FORCE * 2 : cmd.brake * BRAKE_FORCE + skidBrake;
