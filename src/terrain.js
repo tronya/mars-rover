@@ -1302,7 +1302,7 @@ function stoneInCell(ci, cj) {
   const b = hash(ci + 91, cj + 3);
   // The graded road is kept clear of boulders: a lane a truck can follow without a
   // rescue. Small stones stay; they are what makes the road feel like a road.
-  const big = b > 0.97 - 0.13 * rough && (!REAL || roadDist(x, z) > 9);
+  const big = b > 0.97 - 0.13 * rough && (!REAL || roadDist(x, z) > 13); // a boulder is up to 3.5 m across: keep its whole footprint off the 9 m lane
   const r = big ? 1.3 + b * 2.2 : 0.35 + b * 1.15;
   stone.x = x;
   stone.z = z;

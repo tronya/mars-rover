@@ -781,7 +781,7 @@ for (const p of ['classic', 'rapier']) {
 }
 // Region switch (Mars only — the Moon and Верданта have their own ground): the real Jezero
 // DTM or the original procedural world. Read by real-mars.js at load, so it reloads.
-for (const r of ['jezero', 'gale', 'classic']) {
+for (const r of ['jezero', 'gale', 'olympus', 'classic']) {
   const btn = document.getElementById(`region-${r}`);
   btn.classList.toggle('on', (REAL ? REAL.region : 'classic') === r);
   btn.disabled = PLANET !== 'mars';

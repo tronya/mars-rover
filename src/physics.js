@@ -109,7 +109,7 @@ const GRIP_ANGLE_K = 1.25; // a little past the grip limit: the tail may step ou
 // The other limit is the roll-over one: sideways acceleration at which the inside wheels
 // lift is about g × half-track ÷ centre-of-mass height. On Mars that is under 1.5 m/s² for a
 // tall truck, lower than what the tyres hold, so it is the roll-over that decides.
-const ROLL_LIMIT = 0.75 * GRAVITY * (SPEC.wheelX || 1.7) / (Math.abs(SPEC.comY) + 0.9);
+const ROLL_LIMIT = 0.65 * GRAVITY * (SPEC.wheelX || 1.7) / (Math.abs(SPEC.comY) + 0.9);
 export function steerAuthority(speed, gripMul = 1) {
   const v = Math.max(Math.abs(speed), 0.5);
   const aLat = Math.min(GRIP_ANGLE_K * MU * gripMul * GRAVITY, ROLL_LIMIT);

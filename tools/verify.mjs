@@ -12,4 +12,5 @@ const run = (label, cmd, args, env = {}) => {
 run('npm test', 'npm', ['test']);
 run('playbot truck · jezero', 'node', ['tools/playbot.mjs', 'truck']);
 run('playbot truck · gale', 'node', ['tools/playbot.mjs', 'truck'], { TEST_REGION: 'gale' });
+run('playbot truck · olympus', 'node', ['tools/playbot.mjs', 'truck'], { TEST_REGION: 'olympus' });
 console.log('verify: all green');

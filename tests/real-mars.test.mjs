@@ -11,7 +11,7 @@ const { terrainHeight, groundHeight, smallCraters, sandRipples, dustDepth, ROUTE
 
 test('the real map loaded', () => {
   assert.ok(REAL, 'REAL is null: textures/mars/jezero-height.bin missing?');
-  assert.ok(REAL.meta.mppX === 20 || REAL.meta.mppX === 30);
+  assert.ok([20, 30, 50].includes(REAL.meta.mppX));
 });
 
 test('far from the road the ground is the measured one', () => {
@@ -35,7 +35,7 @@ test('the road is graded: gentle slope along its whole length', () => {
   }
   console.log(`  road ${(ROUTE_LEN / 1000).toFixed(1)} km, steepest ${(worst * 100).toFixed(1)} %`);
   assert.ok(worst < 0.15, `road slope ${worst}`);
-  assert.ok(ROUTE_LEN > 5000 && ROUTE_LEN < 14000);
+  assert.ok(ROUTE_LEN > 5000 && ROUTE_LEN < 20000);
 });
 
 test('bases sit level on their pads', () => {
@@ -98,8 +98,9 @@ test('steep ground is broken up, flat ground and the road are not', () => {
 });
 
 test('the road surface does not follow the crag noise', () => {
-  for (const i of [5, 20, 40, Math.floor(ROUTE_PTS.length / 2)]) {
+  for (const i of [20, 40, 60, Math.floor(ROUTE_PTS.length / 2)]) {
     const p = ROUTE_PTS[i];
+    if (BASES.some((b) => Math.hypot(p.x - b.x, p.z - b.z) < 200)) continue; // the pads blend into the road
     assert.ok(Math.abs(terrainHeight(p.x, p.z) - p.e) < 0.6, `road point ${i}: ${terrainHeight(p.x, p.z)} vs ${p.e}`);
   }
 });
@@ -237,5 +238,5 @@ test('HUD attitude: altitude and tilt read right', async () => {
   assert.ok(Math.abs(pitchRollDeg(Math.sin(Math.PI / 12), 0).pitch - 15) < 1e-9, 'a 15 degree nose-up');
   assert.ok(pitchRollDeg(0, -0.2).roll > 0, 'right side down is positive roll');
   // and the HUD's zero: the base sits at REAL.ref metres on the real map
-  assert.ok(Number.isFinite(REAL.ref) && REAL.ref < 0, 'both real regions are below the datum');
+  assert.ok(Number.isFinite(REAL.ref), 'the base height is a number'); // below the datum in Jezero and Gale, 14 km above it on Olympus
 });

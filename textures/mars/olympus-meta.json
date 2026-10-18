@@ -1,0 +1,12 @@
+{
+ "width": 792,
+ "height": 792,
+ "mppX": 50,
+ "mppY": 50,
+ "minH": 11820.660668152448,
+ "maxH": 17410,
+ "originX": -7882588.625612649,
+ "originY": 977086.364147473,
+ "radius": 3396190,
+ "source": "MOLA/HRSC blended DEM, 200 m/px, resampled to 50 m (USGS Astrogeology, doi:10.5066/P9MZCD1V)"
+}
