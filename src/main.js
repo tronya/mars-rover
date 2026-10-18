@@ -8,6 +8,7 @@ import { createAmbient } from './ambient.js';
 import { createBeams } from './beams.js';
 import { CHASSIS, SPEC, CHASSIS_LIST, WHEEL_DEFS, setChassis } from './chassis.js';
 import { VehicleSim, HoverSim, PLANET } from './physics.js';
+import { apSpeed } from './autopilot.js';
 import { createTerrain, groundHeight, terrainHeight, BASES, roadSpawn, setViewScale, waterDepthAt, getSettlement, roadDist, ROAD_HALF, deckHeight, ROUTE_LEN, dustDepth, ROUTE_PTS, nearestRouteIndex } from './terrain.js';
 import { buildBase, updateBases } from './base.js';
 import { createAudio } from './audio.js';
@@ -1516,10 +1517,16 @@ function autopilotInput() {
   const dodgeLoad = Math.abs(bias) / SONAR_MAX_BIAS;
   // A hard swerve at full speed is how it nearly tipped over — bleed off real speed
   // (not just throttle) once the dodge gets serious, so the turn happens slower.
+  const turnErr = wrapAngle(want - sim.yaw());
+  const vWant = apSpeed({
+    ground: groundHeight, x: sim.pos.x, z: sim.pos.z, heading: sim.yaw(), turnErr,
+    dist: Math.hypot(tgt.x - sim.pos.x, tgt.z - sim.pos.z), last: route.length === 1, upY: sim.upY,
+  });
+  const over = sim.speed - vWant;
   return {
-    throttle: clamp((12.5 - sim.speed) * 0.6, -1, 1) * (1 - 0.7 * dodgeLoad),
-    steerTo: clamp(wrapAngle(want - sim.yaw()) * 1.5, -1, 1),
-    brake: dodgeLoad > 0.55 ? (dodgeLoad - 0.55) * 1.4 : 0,
+    throttle: clamp((vWant - sim.speed) * 0.6, -1, 1) * (1 - 0.7 * dodgeLoad),
+    steerTo: clamp(turnErr * 1.5, -1, 1),
+    brake: Math.max(dodgeLoad > 0.55 ? (dodgeLoad - 0.55) * 1.4 : 0, over > 2 ? clamp((over - 2) * 0.15, 0, 0.6) : 0),
     boost: false,
   };
 }
