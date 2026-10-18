@@ -10,6 +10,7 @@ import { CHASSIS, SPEC, CHASSIS_LIST, WHEEL_DEFS, setChassis } from './chassis.j
 import { VehicleSim, HoverSim, PLANET } from './physics.js';
 import { apSpeed } from './autopilot.js';
 let pilotPrevSpeed = 0;
+let apStuck = 0, apBack = 0, apBackSteer = 1; // autopilot back-away recovery
 import { createTerrain, groundHeight, terrainHeight, BASES, roadSpawn, setViewScale, waterDepthAt, getSettlement, roadDist, ROAD_HALF, deckHeight, ROUTE_LEN, dustDepth, pebbleDensity, ROUTE_PTS, nearestRouteIndex } from './terrain.js';
 import { buildBase, updateBases } from './base.js';
 import { createAudio } from './audio.js';
@@ -1566,7 +1567,16 @@ function autopilotInput() {
   const vWant = apSpeed({
     ground: groundHeight, x: sim.pos.x, z: sim.pos.z, heading: sim.yaw(), turnErr,
     dist: Math.hypot(tgt.x - sim.pos.x, tgt.z - sim.pos.z), last: route.length === 1, upY: sim.upY,
+    obstacle: sonarScan.warnObstacle ? sonarScan.warnObstacle.d : null,
   });
+  // Nose against something it cannot get round (a boulder it saw too late, a scarp): back
+  // away, wheel turned the other way from the dodge, then try again from further off.
+  if (Math.abs(sim.speed) < 0.5 && vWant > 1) apStuck += 1 / 60; else if (apBack <= 0) apStuck = 0;
+  if (apStuck > 2.5 && apBack <= 0) { apBack = 3; apBackSteer = bias >= 0 ? -1 : 1; apStuck = 0; }
+  if (apBack > 0) {
+    apBack -= 1 / 60;
+    return { throttle: -0.7, steerTo: apBackSteer, brake: 0, boost: false };
+  }
   const over = sim.speed - vWant;
   return {
     throttle: clamp((vWant - sim.speed) * 0.6, -1, 1) * (1 - 0.7 * dodgeLoad),

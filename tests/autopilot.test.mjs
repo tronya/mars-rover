@@ -21,3 +21,8 @@ test('it slows for the final waypoint but not for a mid-route one', () => {
   assert.ok(apSpeed({ ...base, last: true, dist: 0 }) >= 1.5);
 });
 test('leaning hard slows it', () => assert.ok(apSpeed({ ...base, upY: 0.6 }) < 0.5 * AP_CRUISE));
+test('a boulder ahead caps the speed so it can stop', () => {
+  assert.ok(apSpeed({ ...base, obstacle: 30 }) < 10);
+  assert.ok(apSpeed({ ...base, obstacle: 7 }) < 3.5);
+  assert.equal(apSpeed({ ...base, obstacle: 200 }), AP_CRUISE);
+});
