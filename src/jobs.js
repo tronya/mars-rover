@@ -127,10 +127,11 @@ export function createJobs() {
   // A science errand on the real map: drive to a named place and drill a core sample,
   // then bring it to the nearest base. Only exists where there are real places.
   function sampleJob(rx, rz) {
-    const reach = REAL_PLACES.filter((p) => {
-      const d = Math.hypot(p.x - rx, p.z - rz);
-      return d > 120 && d < 6000 && p !== lastPlace;
-    });
+    // Near ones first; on a big map (Gale) the nearest few are all there is.
+    const byDist = REAL_PLACES.filter((p) => p !== lastPlace && Math.hypot(p.x - rx, p.z - rz) > 120)
+      .sort((a, b) => Math.hypot(a.x - rx, a.z - rz) - Math.hypot(b.x - rx, b.z - rz));
+    const close = byDist.filter((p) => Math.hypot(p.x - rx, p.z - rz) < 6000);
+    const reach = close.length ? close : byDist.slice(0, 3);
     if (!reach.length) return null;
     const p = pickOne(reach, rand);
     lastPlace = p;
