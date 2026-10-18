@@ -15,6 +15,7 @@ import { createAudio } from './audio.js';
 import { createSeeds, seedsDelivered, LAB } from './seeds.js';
 import { createLandmarks } from './landmarks.js';
 import { createJobs } from './jobs.js';
+import { createFinds } from './finds.js';
 import { createNPCs } from './npc.js';
 import { createTracks } from './tracks.js';
 import { createSand } from './sand.js';
@@ -252,6 +253,9 @@ const TOWN = getSettlement();
 // Side jobs around those landmarks, handed out over the radio (jobs.js).
 const jobs = createJobs();
 scene.add(jobs.group);
+// Meteorite fragments off the road (finds.js).
+const finds = createFinds();
+scene.add(finds.group);
 // People in the town, its rovers, haulers on the road (npc.js).
 const npcs = createNPCs();
 scene.add(npcs.group);
@@ -2122,6 +2126,14 @@ function frame() {
       jobClockEl.textContent = jh.clock || '';
     }
   }
+  {
+    const ev = finds.update(t, sim.pos.x, sim.pos.z);
+    if (ev) {
+      flash(ev.text);
+      progress.addBonusScrap(ev.pay);
+      if (audio) { audio.beep(1320, 0.1); setTimeout(() => audio.beep(1760, 0.1), 120); }
+    }
+  }
   if (seeds) {
     const ev = seeds.update(t, sim.pos.x, sim.pos.z);
     if (ev) {
@@ -2231,6 +2243,7 @@ function frame() {
   }
   for (const b of BASES) compassTargets.push({ x: b.x, z: b.z, kind: 'square', text: b.name[0], color: '#4fe0ff' });
   compassTargets.push(...jobs.targets());
+  compassTargets.push(...finds.targets(sim.pos.x, sim.pos.z));
   if (TOWN) compassTargets.push({ x: TOWN.x, z: TOWN.z, kind: 'square', text: 'О', color: '#ffd08a' });
   for (const p of REAL_PLACES) compassTargets.push({ x: p.x, z: p.z, kind: 'square', text: p.letter, color: '#ffd08a' });
   for (const t of compassTargets) {
