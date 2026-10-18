@@ -9,6 +9,7 @@ import { createBeams } from './beams.js';
 import { CHASSIS, SPEC, CHASSIS_LIST, WHEEL_DEFS, setChassis } from './chassis.js';
 import { VehicleSim, HoverSim, PLANET } from './physics.js';
 import { apSpeed } from './autopilot.js';
+let pilotPrevSpeed = 0;
 import { createTerrain, groundHeight, terrainHeight, BASES, roadSpawn, setViewScale, waterDepthAt, getSettlement, roadDist, ROAD_HALF, deckHeight, ROUTE_LEN, dustDepth, pebbleDensity, ROUTE_PTS, nearestRouteIndex } from './terrain.js';
 import { buildBase, updateBases } from './base.js';
 import { createAudio } from './audio.js';
@@ -1767,6 +1768,11 @@ function frame() {
   vehicle.root.position.copy(origin);
   vehicle.root.quaternion.copy(sim.quat);
   vehicle.setSteer(sim.cmd.steer, sim.speed);
+  if (vehicle.setPilot) {
+    const ax = dt > 0 ? (sim.speed - pilotPrevSpeed) / dt : 0;
+    pilotPrevSpeed = sim.speed;
+    vehicle.setPilot(ax, sim.speed * sim.angVel.y, sim.cmd.steer / 0.6);
+  }
 
   // The roof spot's rectangular beam is drawn through its shadow camera, and that
   // camera's own `up` never rotates with its parent — only its position and look

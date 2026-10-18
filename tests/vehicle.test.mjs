@@ -16,3 +16,16 @@ for (const id of Object.keys(expected)) {
     assert.deepEqual(fingerprint(vehicleKit(id).buildVehicle()), expected[id]);
   });
 }
+
+test('the pilot leans into a hard stop and turns the head into a corner', () => {
+  const v = vehicleKit('truck').buildVehicle();
+  const pilots = [];
+  v.root.traverse((o) => { if (o.userData.live) pilots.push(o.userData.live); });
+  assert.ok(pilots.length >= 1, 'no live pilot found');
+  for (let i = 0; i < 80; i++) v.setPilot(-8, 3, 0.8);
+  const { lean, head } = pilots[0];
+  assert.ok(lean.rotation.x > 0.15, 'no lean forward when braking');
+  assert.ok(head.rotation.y < -0.4, 'head did not turn into the corner');
+  for (let i = 0; i < 200; i++) v.setPilot(0, 0, 0);
+  assert.ok(Math.abs(lean.rotation.x) < 0.01 && Math.abs(head.rotation.y) < 0.01, 'did not settle');
+});
