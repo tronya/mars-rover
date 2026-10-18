@@ -1302,7 +1302,7 @@ function stoneInCell(ci, cj) {
   const b = hash(ci + 91, cj + 3);
   // The graded road is kept clear of boulders: a lane a truck can follow without a
   // rescue. Small stones stay; they are what makes the road feel like a road.
-  const big = b > 0.97 - 0.13 * rough && (!REAL || roadDist(x, z) > 9);
+  const big = b > 0.97 - 0.13 * rough && (!REAL || roadDist(x, z) > 13); // a boulder is up to 3.5 m across: keep its whole footprint off the 9 m lane
   const r = big ? 1.3 + b * 2.2 : 0.35 + b * 1.15;
   stone.x = x;
   stone.z = z;
@@ -1680,6 +1680,11 @@ const strata = new THREE.Color(P.strata);
 const pale = new THREE.Color(P.pale);
 const rust = new THREE.Color(P.rust);
 const roadCol = new THREE.Color(P.roadCol);
+// Real Mars: deep, soft dust (it drags and slips, see dustDepth) reads pale, warm and powdery;
+// packed, stony ground off the road reads darker and greyer. The difference you can see is the
+// difference you feel in the wheels.
+const softCol = new THREE.Color(0xe6b88a);
+const hardCol = new THREE.Color(0x5f4a3c);
 const trodden = new THREE.Color(P.roadCol).lerp(new THREE.Color(P.pale), 0.45);
 const mossCol = new THREE.Color(0x5c7a3f);
 const mossLit = new THREE.Color(0x8fab55); // sunlit tops of the thickest cushions
@@ -1721,7 +1726,13 @@ function groundColorAt(x, z, y, normalY, out) {
   out.copy(dark).lerp(base, smooth(0.25, 0.6, a)).lerp(dust, smooth(0.5, 0.85, m) * 0.55);
   out.lerp(pale, smooth(0.46, 0.74, macro) * 0.5).lerp(rust, smooth(0.48, 0.72, patch) * 0.32);
   // Real Mars: the orbiter photo says where the ground is bright dust and where dark.
-  if (REAL) out.multiplyScalar(0.55 + 0.9 * REAL.albedo(x, z));
+  if (REAL) {
+    out.multiplyScalar(0.55 + 0.9 * REAL.albedo(x, z));
+    const soft = dustDepth(x, z);
+    out.lerp(softCol, soft * 0.62);
+    // firm ground beyond the road strip: only where it is clearly not dust
+    out.lerp(hardCol, (1 - soft) * smooth(ROAD_HALF + 14, ROAD_HALF + 170, roadDist(x, z)) * 0.3);
+  }
   // The graded road is paler, packed dust; off it the ground is darker and rockier.
   const onRoad = 1 - smooth(ROAD_HALF + 14, ROAD_HALF + 170, roadDist(x, z));
   out.lerp(roadCol, onRoad * 0.6);

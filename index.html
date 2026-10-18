@@ -270,7 +270,7 @@
         <span id="jobClock"></span>
       </div>
     </div>
-    <div id="debugBar" class="panel"><span id="dbgFps">60 FPS</span><span id="dbgMs">· 16.7 мс/кадр</span><span id="version">v2.93 · керованість: старт без «дибків», кермо на швидкості обмежене межею кочення, м'якші малі кратери</span></div>
+    <div id="debugBar" class="panel"><span id="dbgFps">60 FPS</span><span id="dbgMs">· 16.7 мс/кадр</span><span id="version">v2.108 · пил без квадратів: яскравість ґрунту з карти береться плавно, тож і колір, і опір змінюються плавно</span></div>
   </div>
     <div id="comms" class="panel"><span id="commsFrom"></span><span id="commsText"></span><span id="commsMore"></span></div>
   <div id="compass" class="panel"><canvas id="compassCanvas" width="560" height="70"></canvas></div>
@@ -298,6 +298,7 @@
     <div class="row"><span id="panelState">КРИЛА: СКЛАДЕНІ</span><b id="powerFlow">0.00 %/с</b></div>
     <div class="row" id="odoRow" title="Клац — обнулити поїздку"><span>ПОЇЗДКА</span><b id="odoTrip">0 м</b></div>
     <div class="row sol"><span>ПРОБІГ ВСЬОГО</span><b id="odoTotal">0 м</b></div>
+    <div class="row" title="Що під колесами: від цього залежать опір і зчеплення"><span>ҐРУНТ</span><b id="groundStat">—</b></div>
     <div class="row sol" title="Яка частина карти вже побачена"><span>ДОСЛІДЖЕНО</span><b id="exploredStat">0%</b></div>
     <div class="row sol" title="Рекорд · поточний час на маршруті між базами"><span>РЕКОРД · ЗАРАЗ</span><b id="bestStat">–</b></div>
     <div class="row sol"><span>СОЛ</span><b id="clock">00:00</b></div>
@@ -333,6 +334,7 @@
       <div class="btnRow">
         <button id="sound">Звук: вимк</button>
         <button id="lamps">Світло: АВТО</button>
+        <button id="tyres">Тиск у шинах: норма</button>
         <button id="mapToggle">Карта: увімк</button>
         <button id="sandToggle" class="on">Камінці: увімк</button>
       </div>
@@ -345,6 +347,7 @@
       <div class="btnRow" id="regionRow">
         <button id="region-jezero">Єзеро · справжній рельєф</button>
         <button id="region-gale">Гейл · гора Шарпа</button>
+        <button id="region-olympus">Олімп · схил вулкана</button>
         <button id="region-classic">Класичний Марс</button>
       </div>
       <div class="secTitle">Планета (перезавантажить сторінку)</div>

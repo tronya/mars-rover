@@ -21,3 +21,8 @@ https://doi.org/10.5066/P13CPYYU. Rebuild with `node tools/prep-dem.mjs` (source
 Persaud, D. M. et al. 2021, CC BY 4.0, https://doi.org/10.5281/zenodo.5808354 (30 m/px, MOLA/HRSC
 referenced). The albedo is derived from slope (there is no orthoimage in that source).
 Rebuild with `node tools/prep-gale.mjs` (source in `tools/cache/gale-hrsc.tif`).
+
+`mars/olympus-height.bin`, `mars/olympus-albedo.bin`: a 40 km window on the flank of Olympus Mons from the
+MOLA/HRSC blended DEM, 200 m/px (USGS Astrogeology, public domain, Fergason, R. L. et al. 2018,
+https://doi.org/10.5066/P9MZCD1V), resampled to 50 m/px; the albedo is derived from slope.
+Rebuild with `node tools/prep-region.mjs olympus -132.65 16.15 40` (reads only the window over HTTP range requests).

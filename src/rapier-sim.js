@@ -185,7 +185,7 @@ export class RapierVehicleSim extends VehicleSim {
         R.ColliderDesc.cuboid(0.12, 0.55 * w.R, 0.55 * w.R)
           .setTranslation(w.s * face, hy, w.z - COM.z)
           .setDensity(0)
-          .setFriction(0.6),
+          .setFriction(0.15),
         body
       );
     }
@@ -342,6 +342,7 @@ export class RapierVehicleSim extends VehicleSim {
 
   step(h) {
     const { body, ctl, cmd, k } = this;
+    const dust = this.softness(h);
     const { SPEC, WHEEL_DEFS, SUSP, NW, WEIGHT, CORNER, MASS, S_STATIC, K_LIN, K_PROG, BRAKE_FORCE, SKID, DOWNFORCE } = k;
     if (!this.ground) setDeckRef(this.pos.y);
     this.refresh();
@@ -386,7 +387,7 @@ export class RapierVehicleSim extends VehicleSim {
       // Rapier's brake is an impulse budget per step; parked means hold firm.
       const brakeF = cmd.parked ? BRAKE_FORCE * 2 : cmd.brake * BRAKE_FORCE + skidBrake;
       ctl.setWheelBrake(i, brakeF * h);
-      ctl.setWheelFrictionSlip(i, upright * SPEC.mu * (w.mu ?? 1) * this.gripMul * (1 - 0.12 * dustDepth(this.pos.x, this.pos.z)));
+      ctl.setWheelFrictionSlip(i, upright * SPEC.mu * (w.mu ?? 1) * this.gripMul * (1 - 0.12 * dust));
       // Spring and damper for where this corner is in its travel right now.
       const L = this.wheels[i].L;
       const comp = SUSP.Lfree - L;
@@ -418,7 +419,7 @@ export class RapierVehicleSim extends VehicleSim {
     const vh = Math.hypot(v.x, v.z);
     const contacts = this.wheels.filter((w) => w.contact).length;
     if (vh > 0.01 && contacts) {
-      const resist = (ROLLING_RES * this.rollMul * (1 + 0.8 * dustDepth(this.pos.x, this.pos.z)) * WEIGHT * contacts) / NW + k.DRAG_V2 * this.dragMul * vh * vh;
+      const resist = (ROLLING_RES * this.rollMul * (1 + 0.8 * dust) * WEIGHT * contacts) / NW + k.DRAG_V2 * this.dragMul * vh * vh;
       const f = Math.min(resist, (MASS * vh) / h) / vh;
       body.addForce({ x: -v.x * f, y: 0, z: -v.z * f }, true);
     }

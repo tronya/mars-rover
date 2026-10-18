@@ -8,12 +8,18 @@ import { createAmbient } from './ambient.js';
 import { createBeams } from './beams.js';
 import { CHASSIS, SPEC, CHASSIS_LIST, WHEEL_DEFS, setChassis } from './chassis.js';
 import { VehicleSim, HoverSim, PLANET } from './physics.js';
-import { createTerrain, groundHeight, terrainHeight, BASES, roadSpawn, setViewScale, waterDepthAt, getSettlement, roadDist, ROAD_HALF, deckHeight, ROUTE_LEN, dustDepth, ROUTE_PTS, nearestRouteIndex } from './terrain.js';
+import { apSpeed } from './autopilot.js';
+let pilotPrevSpeed = 0;
+let offroadSm = 0;
+let apStuck = 0, apBack = 0, apBackSteer = 1, apLastBack = -999; // autopilot back-away recovery
+import { createTerrain, groundHeight, terrainHeight, BASES, roadSpawn, setViewScale, waterDepthAt, getSettlement, roadDist, ROAD_HALF, deckHeight, ROUTE_LEN, dustDepth, pebbleDensity, ROUTE_PTS, nearestRouteIndex } from './terrain.js';
 import { buildBase, updateBases } from './base.js';
 import { createAudio } from './audio.js';
 import { createSeeds, seedsDelivered, LAB } from './seeds.js';
 import { createLandmarks } from './landmarks.js';
 import { createJobs } from './jobs.js';
+import { createFinds } from './finds.js';
+import { createExpedition } from './expedition.js';
 import { createNPCs } from './npc.js';
 import { createTracks } from './tracks.js';
 import { createSand } from './sand.js';
@@ -251,6 +257,11 @@ const TOWN = getSettlement();
 // Side jobs around those landmarks, handed out over the radio (jobs.js).
 const jobs = createJobs();
 scene.add(jobs.group);
+// A long trip through real places, started with X (expedition.js).
+const expedition = createExpedition({ places: REAL_PLACES.map((p) => ({ ...p, x: p.goal.x, z: p.goal.z })), bases: BASES });
+// Meteorite fragments off the road (finds.js).
+const finds = createFinds();
+scene.add(finds.group);
 // People in the town, its rovers, haulers on the road (npc.js).
 const npcs = createNPCs();
 scene.add(npcs.group);
@@ -577,6 +588,19 @@ function cycleLamps() {
   document.getElementById('lamps').classList.toggle('on', lampMode !== 0);
   flash(`Світло: ${LAMP_MODES[lampMode].label}`);
 }
+const TYRE_MODES = [
+  { label: 'м\'які', p: 0.7 },
+  { label: 'норма', p: 1 },
+  { label: 'тверді', p: 1.3 },
+];
+let tyreMode = 1;
+function cycleTyres() {
+  tyreMode = (tyreMode + 1) % TYRE_MODES.length;
+  const t = `Тиск у шинах: ${TYRE_MODES[tyreMode].label}`;
+  const b = document.getElementById('tyres');
+  if (b) { b.textContent = t; b.classList.toggle('on', tyreMode !== 1); }
+  flash(t);
+}
 function lampLevel() {
   const fixed = LAMP_MODES[lampMode].level;
   return fixed !== null ? fixed : daylight < 0.45 || stormW > 0.35 ? 2 : 0;
@@ -762,7 +786,7 @@ for (const p of ['classic', 'rapier']) {
 }
 // Region switch (Mars only — the Moon and Верданта have their own ground): the real Jezero
 // DTM or the original procedural world. Read by real-mars.js at load, so it reloads.
-for (const r of ['jezero', 'gale', 'classic']) {
+for (const r of ['jezero', 'gale', 'olympus', 'classic']) {
   const btn = document.getElementById(`region-${r}`);
   btn.classList.toggle('on', (REAL ? REAL.region : 'classic') === r);
   btn.disabled = PLANET !== 'mars';
@@ -899,6 +923,16 @@ window.addEventListener('keydown', (e) => {
   if (e.code === 'KeyP') return setAutopilot(!autopilot);
   if (e.code === 'KeyE') return togglePanels();
   if (e.code === 'KeyL') return cycleLamps();
+  if (e.code === 'KeyT') return cycleTyres();
+  if (e.code === 'KeyX') {
+    if (expedition.active) { flash(expedition.cancel().text); return; }
+    const ev = expedition.start(sim.pos.x, sim.pos.z);
+    if (!ev) return flash('Експедиція є на справжніх картах: Єзеро, Гейл, Олімп');
+    jobs.skip();
+    flash(ev.text);
+    say([['ОРІОН · керівник зміни', `Експедиція: ${ev.stops.map((st) => st.name).join(' → ')}. Їдь у своєму темпі, Сьомий.`]]);
+    return;
+  }
   if (e.code === 'KeyK') return void toggleSound();
   if (e.code === 'KeyO') return menuEl.classList.toggle('show');
   if (e.code === 'KeyU') { wsAuto = false; return toggleWorkshop(); }
@@ -1141,7 +1175,7 @@ const hudHint = document.getElementById('hint');
 const btnAuto = document.getElementById('autopilot');
 const btnReset = document.getElementById('reset');
 // The autopilot parks, unfolds, charges to full, folds and carries on by itself.
-const auto = { state: 'drive' };
+const auto = { state: 'drive', t: 0 };
 
 function setAutopilot(on) {
   if (on && !upgrades.unlocked('autopilot')) {
@@ -1193,10 +1227,38 @@ function resetVehicle(home = false) {
     odo.last = null;
     terrain.prime(sim.pos.x, sim.pos.z);
     tracks.clear();
+  } else if (isHung()) {
+    unstick();
   } else {
     startRighting();
   }
   camYaw = sim.yaw();
+}
+
+// Belly on a boulder: the wheels turn in the air and nothing moves. R lifts the rover
+// off and sets it on the flattest clear ground within a few metres, facing the same way.
+function isHung() {
+  const touching = sim.wheels.filter((w) => w.contact).length;
+  // half the wheels (or fewer) on the ground and going nowhere: propped on the hull, not driving
+  return sim.upY > 0.5 && touching <= sim.wheels.length / 2 && Math.abs(sim.speed) < 1.2;
+}
+function unstick() {
+  const yaw = sim.yaw();
+  const fx = Math.sin(yaw), fz = Math.cos(yaw);
+  let best = null;
+  for (const d of [-9, -6, -4, 4, 6, 9]) for (const o of [-6, -3, 0, 3, 6]) {
+    const x = sim.pos.x + fx * d + fz * o, z = sim.pos.z + fz * d - fx * o;
+    let lo = Infinity, hi = -Infinity;
+    for (const [dx, dz] of [[0, 0], [2, 0], [-2, 0], [0, 3], [0, -3], [2, 3], [-2, -3]]) {
+      const h = groundHeight(x + dx, z + dz);
+      lo = Math.min(lo, h); hi = Math.max(hi, h);
+    }
+    const score = (hi - lo) + 0.02 * Math.abs(d);
+    if (!best || score < best.score) best = { x, z, score };
+  }
+  sim.reset(best.x, best.z, yaw);
+  tracks.clear();
+  flash('Ровер знято з каменя');
 }
 
 // ---------- route: waypoints the autopilot drives through ----------
@@ -1223,6 +1285,8 @@ const EXPLORED_KEY = `rover.explored.${REAL ? REAL.region : PLANET}`;
 try { minimap.importExplored(localStorage.getItem(EXPLORED_KEY)); } catch (e) { /* storage may be blocked */ }
 const exploredState = { next: 0, saveAt: 0, text: '' };
 const hudExplored = document.getElementById('exploredStat');
+const hudGround = document.getElementById('groundStat');
+let groundText = '';
 function stepExplored(t) {
   if (t < exploredState.next) return;
   exploredState.next = t + 0.5;
@@ -1464,6 +1528,22 @@ function drawCompass(yaw, targets) {
 const AUTO_LABEL = { drive: 'АВТОПІЛОТ', stopping: 'АВТОПІЛОТ: ЗУПИНКА',
   charging: 'АВТОПІЛОТ: ЗАРЯДКА', stowing: 'АВТОПІЛОТ: ЗБІР КРИЛ' };
 
+function detourPoint() {
+  const yaw = sim.yaw();
+  const fx = Math.sin(yaw), fz = Math.cos(yaw);
+  const rocks = (side) => {
+    let n = 0;
+    for (let k = 1; k <= 12; k++) {
+      const x = sim.pos.x + fx * 20 * (k / 12) + fz * side * 70 * (k / 12);
+      const z = sim.pos.z + fz * 20 * (k / 12) - fx * side * 70 * (k / 12);
+      if (groundHeight(x, z) - terrainHeight(x, z) > 0.4) n++;
+    }
+    return n;
+  };
+  const side = rocks(1) <= rocks(-1) ? 1 : -1;
+  return { x: sim.pos.x + fx * 20 + fz * side * 70, z: sim.pos.z + fz * 20 - fx * side * 70 };
+}
+
 function autopilotInput() {
   if (auto.state === 'drive' && power.battery <= 0.6) auto.state = 'stopping';
   // Someone left the wings out; fold them before moving.
@@ -1502,10 +1582,32 @@ function autopilotInput() {
   const dodgeLoad = Math.abs(bias) / SONAR_MAX_BIAS;
   // A hard swerve at full speed is how it nearly tipped over — bleed off real speed
   // (not just throttle) once the dodge gets serious, so the turn happens slower.
+  const turnErr = wrapAngle(want - sim.yaw());
+  const vWant = apSpeed({
+    ground: groundHeight, x: sim.pos.x, z: sim.pos.z, heading: sim.yaw(), turnErr,
+    dist: Math.hypot(tgt.x - sim.pos.x, tgt.z - sim.pos.z), last: route.length === 1, upY: sim.upY,
+    obstacle: sonarScan.warnObstacle ? sonarScan.warnObstacle.d : null,
+  });
+  // Nose against something it cannot get round (a boulder it saw too late, a scarp): back
+  // away, wheel turned the other way from the dodge, then try again from further off.
+  if (Math.abs(sim.speed) < 0.5 && vWant > 1) apStuck += 1 / 60; else if (apBack <= 0) apStuck = 0;
+  if (apStuck > 2.5 && apBack <= 0) {
+    apBack = 3; apBackSteer = bias >= 0 ? -1 : 1; apStuck = 0;
+    // Pinned again soon after the last time: a rock field. Go round it — a detour
+    // waypoint 70 m to the side with fewer boulders, then on to the real target.
+    if (auto.t - apLastBack < 40) route.unshift(detourPoint());
+    apLastBack = auto.t;
+  }
+  auto.t += 1 / 60;
+  if (apBack > 0) {
+    apBack -= 1 / 60;
+    return { throttle: -0.7, steerTo: apBackSteer, brake: 0, boost: false };
+  }
+  const over = sim.speed - vWant;
   return {
-    throttle: clamp((12.5 - sim.speed) * 0.6, -1, 1) * (1 - 0.7 * dodgeLoad),
-    steerTo: clamp(wrapAngle(want - sim.yaw()) * 1.5, -1, 1),
-    brake: dodgeLoad > 0.55 ? (dodgeLoad - 0.55) * 1.4 : 0,
+    throttle: clamp((vWant - sim.speed) * 0.6, -1, 1) * (1 - 0.7 * dodgeLoad),
+    steerTo: clamp(turnErr * 1.5, -1, 1),
+    brake: Math.max(dodgeLoad > 0.55 ? (dodgeLoad - 0.55) * 1.4 : 0, over > 2 ? clamp((over - 2) * 0.15, 0, 0.6) : 0),
     boost: false,
   };
 }
@@ -1546,6 +1648,8 @@ const UP = new THREE.Vector3(0, 1, 0);
 let camYaw = sim.yaw();
 let camY = sim.pos.y;
 let flippedFor = 0;
+let hungFor = 0;
+const HINT_FLIPPED = 'Перевернулись? Натисни R, щоб поставити на колеса';
 let camMode = 0;
 let orbitAngle = 0;
 const ORBIT_IDLE = 4; // s without camera input before the orbit camera circles again
@@ -1742,6 +1846,11 @@ function frame() {
   vehicle.root.position.copy(origin);
   vehicle.root.quaternion.copy(sim.quat);
   vehicle.setSteer(sim.cmd.steer, sim.speed);
+  if (vehicle.setPilot) {
+    const ax = dt > 0 ? (sim.speed - pilotPrevSpeed) / dt : 0;
+    pilotPrevSpeed = sim.speed;
+    vehicle.setPilot(ax, sim.speed * sim.angVel.y, sim.cmd.steer / 0.6);
+  }
 
   // The roof spot's rectangular beam is drawn through its shadow camera, and that
   // camera's own `up` never rotates with its parent — only its position and look
@@ -1800,7 +1909,10 @@ function frame() {
   sun.target.position.copy(sim.pos);
 
   flippedFor = sim.upY < 0.55 && speedAbs < 2.5 && righting.t <= 0 ? flippedFor + dt : 0;
-  hudHint.classList.toggle('show', flippedFor > 1.0);
+  hungFor = isHung() && Math.abs(sim.cmd.throttle) > 0.3 && righting.t <= 0 ? hungFor + dt : 0;
+  const hintText = hungFor > 1.5 && flippedFor <= 1.0 ? 'Застрягли на камені? Натисни R, щоб зняти ровер' : HINT_FLIPPED;
+  if (hudHint.textContent !== hintText) hudHint.textContent = hintText;
+  hudHint.classList.toggle('show', flippedFor > 1.0 || hungFor > 1.5);
   // ---------- workshop upgrades ----------
   sim.powerMul = upgrades.mul('motor');
   sim.suspMul = upgrades.mul('suspension');
@@ -1813,10 +1925,20 @@ function frame() {
     const rd = roadDist(sim.pos.x, sim.pos.z);
     // A bridge deck is paved: no bogging down on it.
     const onDeck = Math.abs(sim.pos.y - deckHeight(sim.pos.x, sim.pos.z)) < 3;
-    const off = onDeck ? 0 : clamp((rd - ROAD_HALF * 0.6) / 24, 0, 1);
+    const offRaw = onDeck ? 0 : clamp((rd - ROAD_HALF * 0.6) / 60, 0, 1);
+    // Eased (~1.2 s): leaving the graded strip at 40 m/s used to change the rolling drag
+    // from one frame to the next, a jerk in speed at the road's edge.
+    offroadSm += (offRaw - offroadSm) * (1 - Math.exp(-dt / 1.2));
+    const off = offroadSm;
     offroadK = off;
     sim.rollMul = (0.7 + 0.3 * off) * (1 + (TR.offRoll - 1) * off);
     sim.dragMul = 1 + (TR.offDrag - 1) * off;
+    // Tyre pressure: soft tyres float on dust and grip loose ground better but waste
+    // energy and wander on the hard road; hard ones are the other way round.
+    const dp = TYRE_MODES[tyreMode].p - 1;
+    const soft = off * Math.min(1, 0.4 + dustDepth(sim.pos.x, sim.pos.z));
+    sim.rollMul *= 1 + dp * (0.9 * soft - 0.5 * (1 - soft));
+    sim.gripMul *= 1 - dp * (0.35 * soft - 0.08 * (1 - soft));
   }
   const wade = Math.min(1, waterDepthAt(sim.pos.x, sim.pos.z) / TR.wade);
   if (wade > 0) {
@@ -2074,7 +2196,18 @@ function frame() {
   updateBases(daylight);
   npcs.update(dt, t, sim.pos, 1 - daylight);
   {
-    const ev = jobs.update(t, dt, sim.pos.x, sim.pos.z, sim.speed);
+    const xe = expedition.update(dt, sim.pos.x, sim.pos.z);
+    if (xe) {
+      flash(xe.text);
+      if (xe.lines) say(xe.lines);
+      if (xe.type === 'done') {
+        progress.addBonusScrap(xe.pay);
+        if (audio) { audio.beep(880); setTimeout(() => audio.beep(1320), 150); }
+      } else if (audio) audio.beep(1040, 0.1);
+    }
+  }
+  {
+    const ev = expedition.active ? null : jobs.update(t, dt, sim.pos.x, sim.pos.z, sim.speed);
     if (ev) {
       flash(ev.text);
       if (ev.lines) say(ev.lines);
@@ -2085,7 +2218,8 @@ function frame() {
         audio.beep(ev.type === 'offer' ? 660 : 1040, 0.1);
       }
     }
-    const jh = jobs.hud();
+    const xh = expedition.hud(sim.pos.x, sim.pos.z);
+    const jh = xh ? { title: xh.title, text: xh.text, gauge: null, clock: 'X — скасувати' } : jobs.hud();
     jobBoxEl.classList.toggle('on', !!jh);
     if (jh) {
       jobTitleEl.textContent = jh.title;
@@ -2093,6 +2227,14 @@ function frame() {
       jobGaugeEl.classList.toggle('on', jh.gauge !== null);
       if (jh.gauge !== null) jobBarEl.style.width = `${Math.min(100, jh.gauge * 100).toFixed(0)}%`;
       jobClockEl.textContent = jh.clock || '';
+    }
+  }
+  {
+    const ev = finds.update(t, sim.pos.x, sim.pos.z);
+    if (ev) {
+      flash(ev.text);
+      progress.addBonusScrap(ev.pay);
+      if (audio) { audio.beep(1320, 0.1); setTimeout(() => audio.beep(1760, 0.1), 120); }
     }
   }
   if (seeds) {
@@ -2171,7 +2313,12 @@ function frame() {
   if (audio) {
     const contacts = W.length ? W.filter((w) => w.sim.contact).length / W.length : 0;
     audio.update({ speed: sim.speed, throttle: sim.cmd.throttle, contact: contacts,
-      boost: sim.cmd.boost, daylight, storm: weather.w });
+      boost: sim.cmd.boost, daylight, storm: weather.w,
+      ground: {
+        soft: clamp(dustDepth(sim.pos.x, sim.pos.z), 0, 1),
+        stones: pebbleDensity(sim.pos.x, sim.pos.z),
+        road: 1 - clamp((roadDist(sim.pos.x, sim.pos.z) - ROAD_HALF * 0.5) / (ROAD_HALF * 0.5), 0, 1),
+      } });
     // Knock when a wheel slams into its bump stop.
     for (const w of W) {
       const hard = w.sim.contact && w.sim.L < SUSP.Lmin + 0.04;
@@ -2180,6 +2327,12 @@ function frame() {
     }
   }
 
+  {
+    const d = dustDepth(sim.pos.x, sim.pos.z);
+    const onRoad = roadDist(sim.pos.x, sim.pos.z) < ROAD_HALF * 0.6;
+    const gt = onRoad ? 'дорога' : d > 0.6 ? 'глибокий пил' : d > 0.25 ? 'пил' : pebbleDensity(sim.pos.x, sim.pos.z) > 0.55 ? 'щебінь' : 'тверде';
+    if (gt !== groundText) { groundText = gt; hudGround.textContent = gt; }
+  }
   hudSpeed.textContent = SPEC.flight
     ? `${(speedAbs * 3.6).toFixed(0)} км/год · ↕ ${Math.max(0, sim.height()).toFixed(0)} м`
     : `${(speedAbs * 3.6).toFixed(0)} км/год · ${SPEC.driveLabel[sim.awd ? 0 : 1]}`;
@@ -2198,7 +2351,8 @@ function frame() {
     compassTargets.push({ x: LAB.x, z: LAB.z, kind: 'square', text: 'Л', color: '#7ce68f' });
   }
   for (const b of BASES) compassTargets.push({ x: b.x, z: b.z, kind: 'square', text: b.name[0], color: '#4fe0ff' });
-  compassTargets.push(...jobs.targets());
+  compassTargets.push(...jobs.targets(), ...expedition.targets());
+  compassTargets.push(...finds.targets(sim.pos.x, sim.pos.z));
   if (TOWN) compassTargets.push({ x: TOWN.x, z: TOWN.z, kind: 'square', text: 'О', color: '#ffd08a' });
   for (const p of REAL_PLACES) compassTargets.push({ x: p.x, z: p.z, kind: 'square', text: p.letter, color: '#ffd08a' });
   for (const t of compassTargets) {
@@ -2212,7 +2366,7 @@ function frame() {
     }
   }
   drawCompass(sim.yaw(), compassTargets);
-  minimap.setDynamic(jobs.targets());
+  minimap.setDynamic([...jobs.targets(), ...expedition.targets()]);
   stepExplored(t);
   if (!map3dEl.classList.contains('hidden')) minimap.update(sim, dt);
   sunShadows.update();
@@ -2302,6 +2456,6 @@ try {
 } catch (e) { /* storage may be blocked */ }
 
 // debug hook: inspect state and scrub the sol from the console
-window.game = { garage, loose, kickup, applyPreset, dirt, tracks, weather, contactShadow, vehicle, landmarks, jobs, npcs, roadPosts, missions, debris, upgrades, dust, sonar, get sonarScan() { return sonarScan; }, sim, camera, controls, power, renderer, scene, terrain, post, sunShadows, ambient, route, minimap, auto, sand, grass, water, splash, setTime: (t) => { timeOfDay = t % 1; }, get timeOfDay() { return timeOfDay; } };
+window.game = { righting, expedition, finds, garage, loose, kickup, applyPreset, dirt, tracks, weather, contactShadow, vehicle, landmarks, jobs, npcs, roadPosts, missions, debris, upgrades, dust, sonar, get sonarScan() { return sonarScan; }, sim, camera, controls, power, renderer, scene, terrain, post, sunShadows, ambient, route, minimap, auto, sand, grass, water, splash, setTime: (t) => { timeOfDay = t % 1; }, get timeOfDay() { return timeOfDay; } };
 document.getElementById('loading').classList.add('hidden');
 frame();

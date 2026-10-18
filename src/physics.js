@@ -109,7 +109,7 @@ const GRIP_ANGLE_K = 1.25; // a little past the grip limit: the tail may step ou
 // The other limit is the roll-over one: sideways acceleration at which the inside wheels
 // lift is about g × half-track ÷ centre-of-mass height. On Mars that is under 1.5 m/s² for a
 // tall truck, lower than what the tyres hold, so it is the roll-over that decides.
-const ROLL_LIMIT = 0.75 * GRAVITY * (SPEC.wheelX || 1.7) / (Math.abs(SPEC.comY) + 0.9);
+const ROLL_LIMIT = 0.65 * GRAVITY * (SPEC.wheelX || 1.7) / (Math.abs(SPEC.comY) + 0.9);
 export function steerAuthority(speed, gripMul = 1) {
   const v = Math.max(Math.abs(speed), 0.5);
   const aLat = Math.min(GRIP_ANGLE_K * MU * gripMul * GRAVITY, ROLL_LIMIT);
@@ -318,6 +318,15 @@ export class VehicleSim {
   }
 
   // input: { throttle: -1..1, steer: -1..1 (left +), brake: 0..1, boost: bool }
+  // Dust depth under the rover, eased over ~0.7 s: a pocket of dust at 40 m/s is
+  // metres long, and the raw value turned it into a wall of drag from one step to the next.
+  softness(h) {
+    const raw = dustDepth(this.pos.x, this.pos.z);
+    if (this.dustS === undefined || h > 0.3) this.dustS = raw;
+    else this.dustS += (raw - this.dustS) * (1 - Math.exp(-h / 0.7));
+    return this.dustS;
+  }
+
   update(dt, input) {
     const v = this.speed;
     let throttle = 0;
@@ -606,7 +615,7 @@ export class VehicleSim {
     }
 
     // Pass 2: suspension + tyre forces at each contact patch.
-    const dust = dustDepth(this.pos.x, this.pos.z); // soft ground: more rolling drag, less grip
+    const dust = this.softness(h); // soft ground: more rolling drag, less grip
     for (const w of wheels) {
       if (!w.contact) {
         // Nothing to grip in the air, so the tyre isn't held to road speed like it

@@ -79,6 +79,7 @@ To rebuild them (only if you want another window or region), download the source
 ```bash
 node tools/prep-dem.mjs     # Jezero: needs the CTX DTM and orthoimage .tif files
 node tools/prep-gale.mjs    # Gale: needs gale-hrsc.tif (Zenodo 10.5281/zenodo.5808354)
+node tools/prep-region.mjs olympus -132.65 16.15 40   # any lon/lat window of the 200 m MOLA/HRSC DEM, range-read
 ```
 
 ## Tests and tools

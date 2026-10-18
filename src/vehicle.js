@@ -218,6 +218,7 @@ export function vehicleKit(id) {
     return out;
   }
 
+  const clampN = (v, a, b) => Math.min(b, Math.max(a, v));
   function mergeStatic(group) {
     group.updateMatrixWorld(true);
     const byMat = new Map();
@@ -1101,18 +1102,29 @@ export function vehicleKit(id) {
 
   // ---------- pilots ----------
 
+  // The pilot is alive: the upper body leans with the g-forces and the head turns into
+  // the corner. Legs stay put. `live` marks the group so it is lifted out of the merged
+  // static shell before that is baked (see the end of buildVehicle).
+  const SEAT = { y: 0.3, z: 0.95 }; // the hip the body pivots about
   function buildPilot(x, suit) {
     const g = new THREE.Group();
     g.position.set(x, 0, 0);
-    g.add(mesh(new THREE.CapsuleGeometry(0.18, 0.28, 6, 10), suit, 0, 0.5, 0.95));
-    g.add(mesh(new THREE.SphereGeometry(0.19, 16, 12), M.suit, 0, 0.98, 0.98));
-    g.add(
-      mesh(new THREE.SphereGeometry(0.195, 16, 10, Math.PI / 2 - 0.9, 1.8, Math.PI * 0.3, Math.PI * 0.36), M.visor, 0, 0.98, 0.98)
+    const lean = new THREE.Group();
+    lean.position.set(0, SEAT.y, SEAT.z);
+    lean.add(mesh(new THREE.CapsuleGeometry(0.18, 0.28, 6, 10), suit, 0, 0.5 - SEAT.y, 0));
+    const head = new THREE.Group();
+    head.position.set(0, 0.98 - SEAT.y, 0.03);
+    head.add(mesh(new THREE.SphereGeometry(0.19, 16, 12), M.suit, 0, 0, 0));
+    head.add(
+      mesh(new THREE.SphereGeometry(0.195, 16, 10, Math.PI / 2 - 0.9, 1.8, Math.PI * 0.3, Math.PI * 0.36), M.visor, 0, 0, 0)
     );
+    lean.add(head);
+    g.add(lean);
     for (const dx of [-0.1, 0.1]) {
       g.add(mesh(new THREE.CapsuleGeometry(0.09, 0.34, 4, 6), suit, dx, 0.32, 1.24).rotateX(Math.PI / 2));
       g.add(cyl(0.08, 0.08, 0.26, suit, dx, 0.24, 1.52));
     }
+    g.userData.live = { lean, head };
     return g;
   }
 
@@ -1928,6 +1940,11 @@ export function vehicleKit(id) {
       return { ...d, hub, steer, spin, setCorner };
     });
 
+    // Pilots move, so they leave the baked shell and stay separate meshes.
+    const pilots = [];
+    shell.traverse((o) => { if (o.userData.live) pilots.push(o); });
+    shell.updateMatrixWorld(true);
+    for (const pl of pilots) root.attach(pl);
     root.add(mergeStatic(shell));
     root.traverse((o) => {
       if (!o.isMesh || o.castShadow) return;
@@ -1953,6 +1970,17 @@ export function vehicleKit(id) {
       yokePivot.rotation.z = -delta * 2.5;
     }
 
+    // ax: forward acceleration (m/s^2), ay: lateral (m/s^2, + to the left), steer: -1..1.
+    function setPilot(ax, ay, steer) {
+      for (const pl of pilots) {
+        const { lean, head } = pl.userData.live;
+        lean.rotation.x += (clampN(-ax * 0.03, -0.25, 0.25) - lean.rotation.x) * 0.15;
+        lean.rotation.z += (clampN(ay * 0.025, -0.2, 0.2) - lean.rotation.z) * 0.15;
+        head.rotation.y += (clampN(-steer * 0.7, -0.7, 0.7) - head.rotation.y) * 0.12;
+        head.rotation.z = -lean.rotation.z * 0.8; // keeps the horizon level for the eyes
+      }
+    }
+
     wheels.forEach((_, i) => setSuspension(i, SUSP.Lstatic));
     setPanels(0);
     // amount 0..1; color the planet's dust or mud.
@@ -1962,7 +1990,7 @@ export function vehicleKit(id) {
       DIRT.inv.value.copy(root.matrixWorld).invert();
     }
 
-    return { root, wheels, setSuspension, setSteer, setPanels, setBrake, setDirt, setThrust, TAIL_LAMPS: tailLamps, MOUNTS: SPEC.mounts };
+    return { root, wheels, setSuspension, setSteer, setPanels, setBrake, setDirt, setThrust, setPilot, TAIL_LAMPS: tailLamps, MOUNTS: SPEC.mounts };
   }
 
   return { buildVehicle, WHEEL_R, WHEEL_X, SUSP, TYRE_HALF_W };

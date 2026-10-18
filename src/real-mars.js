@@ -22,6 +22,15 @@ const REGIONS = {
     ],
     near: ['Пагорб-оглядач', 'Западина', 'Уступ'],
   },
+  olympus: {
+    // The flank of Olympus Mons, 12-17 km above the datum: АЛЬФА high on the slope, БЕТА a kilometre and a half lower
+    bases: [{ px: 120, py: 540 }, { px: 400, py: 640 }],
+    places: [
+      { name: 'Схил вулкана', letter: 'В', px: 260, py: 560, blurb: 'Ти їдеш схилом найбільшого вулкана Сонячної системи: Олімп вищий за Еверест утричі, а схил такий пологий, що з нього не видно вершини.' },
+      { name: 'Лавові тераси', letter: 'Л', px: 560, py: 330, blurb: 'Застиглі потоки лави. Вона текла тут мільярди років тому, шар за шаром.' },
+    ],
+    near: ['Пагорб-оглядач', 'Западина', 'Уступ'],
+  },
 };
 import { PLANET } from './planet.js';
 
@@ -56,11 +65,15 @@ function build(meta, bytes, albedoBytes) {
     const u = fx - i, v = fz - j;
     return at(i, j) * (1 - u) * (1 - v) + at(i + 1, j) * u * (1 - v) + at(i, j + 1) * (1 - u) * v + at(i + 1, j + 1) * u * v;
   }
-  // 0..1 brightness of the ground from the CTX orthoimage, nearest pixel
+  // 0..1 brightness of the ground from the orbiter image, bilinear: nearest-pixel made the
+  // dust (tint and drag both) change in square steps one map pixel wide.
   function albedo(x, z) {
-    const i = Math.min(W - 1, Math.max(0, Math.round((x + halfW) / mppX)));
-    const j = Math.min(H - 1, Math.max(0, Math.round((z + halfH) / mppY)));
-    return albedoBytes[j * W + i] / 255;
+    const fx = Math.min(W - 1.001, Math.max(0, (x + halfW) / mppX));
+    const fz = Math.min(H - 1.001, Math.max(0, (z + halfH) / mppY));
+    const i = Math.floor(fx), j = Math.floor(fz);
+    const u = fx - i, v = fz - j;
+    const a = albedoBytes;
+    return (a[j * W + i] * (1 - u) * (1 - v) + a[j * W + i + 1] * u * (1 - v) + a[(j + 1) * W + i] * (1 - u) * v + a[(j + 1) * W + i + 1] * u * v) / 255;
   }
   // Slope (rise over run) per pixel, once, so asking for it costs one lookup
   const slopeGrid = new Float32Array(W * H);
@@ -201,6 +214,26 @@ export const REAL_PLACES = REAL
   ]
   : [];
 
+// A place can sit on a scarp no rover can climb (Уступ is 30 degrees). `goal` is where a
+// trip to it should end: the nearest gently sloping ground, searched outwards.
+function driveableNear(p) {
+  if (!REAL || REAL.slope(p.x, p.z) < 0.14) return { x: p.x, z: p.z };
+  for (let r = 40; r <= 800; r += 40) {
+    let best = null;
+    for (let k = 0; k < 24; k++) {
+      const a = (k / 24) * Math.PI * 2;
+      const x = p.x + Math.cos(a) * r, z = p.z + Math.sin(a) * r;
+      if (Math.abs(x) > REAL.halfW - 300 || Math.abs(z) > REAL.halfH - 300) continue;
+      let worst = REAL.slope(x, z);
+      for (let j = 0; j < 8; j++) worst = Math.max(worst, REAL.slope(x + Math.cos(j * 0.785) * 30, z + Math.sin(j * 0.785) * 30));
+      if (worst < 0.14 && (!best || worst < best.worst)) best = { x, z, worst };
+    }
+    if (best) return { x: best.x, z: best.z };
+  }
+  return { x: p.x, z: p.z };
+}
+for (const p of REAL_PLACES) p.goal = driveableNear(p);
+
 // Radio chatter on the way, per region: `at` is how far along the road (0 = the base you
 // left, 1 = the one you are heading for) it comes on, once a session. Оріон talks about
 // the ground you are actually driving over; the facts are the real ones (landing dates,
@@ -218,5 +251,11 @@ export const REGION_RADIO = {
     { at: 0.4, lines: [[ORION, 'Шостого серпня 2012-го «Кьюріосіті» опустився на «Бредбері». Тут він знайшов глину, а отже воду, придатну для життя.']] },
     { at: 0.7, lines: [[ORION, 'Бачиш гору попереду? Ейолис-Монс, понад п’ять кілометрів шарів. Кожен шар розповідає про іншу епоху Марса.']] },
     { at: 0.92, lines: [[ORION, 'Підніжжя гори. Ровер лазив тут роками, кожен метр підйому давав нову породу під колеса.']] },
+  ],
+  olympus: [
+    { at: 0.1, lines: [[ORION, 'Це схил Олімпу, Сьомий. Тут повітря таке розріджене, що тиск удвічі нижчий, ніж навіть на рівнині.']] },
+    { at: 0.4, lines: [[ORION, 'Олімп заввишки двадцять два кілометри. Ти не бачиш вершини: схил такий пологий, що горизонт ховає її.']] },
+    { at: 0.7, lines: [[ORION, 'Бачиш темні смуги? Це лавові потоки. Вулкан росте шарами, потік за потоком.']] },
+    { at: 0.92, lines: [[ORION, 'База внизу. Вулкан давно спить, але він найбільший на планеті.']] },
   ],
 };

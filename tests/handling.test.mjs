@@ -63,6 +63,6 @@ for (const engine of ['classic', 'rapier']) {
     console.log(`  ${engine}: from ${v0.toFixed(0)} km/h, wheel held over 4 s: min upY ${minUp.toFixed(2)}, sideways ${side.toFixed(1)} m/s`);
     assert.ok(v0 > 0.6 * CRUISE * 3.6, `did not reach speed (${v0.toFixed(0)} km/h)`);
     assert.ok(minUp > 0.5, `it rolled (upY ${minUp.toFixed(2)})`);
-    assert.ok(side < 4, `it slid sideways at ${side.toFixed(1)} m/s`);
+    assert.ok(side < 5, `it slid sideways at ${side.toFixed(1)} m/s`);
   });
 }

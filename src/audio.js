@@ -386,7 +386,8 @@ export function createAudio() {
       return enabled;
     },
     // speed m/s, throttle -1..1, contact 0..1, boost bool, daylight 0..1
-    update({ speed, throttle, contact, boost, daylight, storm = 0 }) {
+    // ground: { soft 0..1 (dust/sand), stones 0..1 (pebbles, scree), road 0..1 (graded) }
+    update({ speed, throttle, contact, boost, daylight, storm = 0, ground = { soft: 0.3, stones: 0.4, road: 0 } }) {
       if (!enabled) return;
       const v = Math.min(Math.abs(speed), 50);
       const load = Math.abs(throttle) * (boost ? 1.3 : 1);
@@ -401,12 +402,15 @@ export function createAudio() {
       at(inverterGain.gain, 0.006 * Math.min(1, load) * Math.max(0, 1 - v / 20), 0.1);
       at(rumbleGain.gain, Math.min(0.5, v * 0.03), 0.15);
 
-      at(treadGain.gain, contact * Math.min(0.5, v * 0.03), 0.1);
-      at(treadBp.frequency, 140 + v * 6, 0.15);
+      // The ground changes the voice: packed road is a dull steady roar, loose dust
+      // swallows the tread and hisses, stony ground cracks.
+      const { soft, stones, road } = ground;
+      at(treadGain.gain, contact * Math.min(0.5, v * 0.03) * (1 + 0.35 * road - 0.5 * soft), 0.1);
+      at(treadBp.frequency, 140 + v * 6 - 40 * soft + 30 * road, 0.15);
       at(lugs.frequency, Math.max(2, v * 2.9), 0.1);
-      at(gravelGain.gain, contact * Math.min(0.9, v * 0.07), 0.1);
+      at(gravelGain.gain, contact * Math.min(0.9, v * 0.07) * (0.25 + 1.1 * stones) * (1 - 0.6 * road) * (1 - 0.5 * soft), 0.1);
       at(gravelSrc.playbackRate, 0.6 + Math.min(1.6, v * 0.06), 0.2);
-      at(sandGain.gain, contact * Math.min(0.12, v * 0.008), 0.15);
+      at(sandGain.gain, contact * Math.min(0.12, v * 0.008) * (0.3 + 2.4 * soft) * (1 - road), 0.15);
 
       // Nights feel colder: the wind sits higher and thinner.
       // A storm (weather.js) roars up over everything else.
