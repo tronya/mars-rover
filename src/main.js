@@ -9,7 +9,7 @@ import { createBeams } from './beams.js';
 import { CHASSIS, SPEC, CHASSIS_LIST, WHEEL_DEFS, setChassis } from './chassis.js';
 import { VehicleSim, HoverSim, PLANET } from './physics.js';
 import { apSpeed } from './autopilot.js';
-import { createTerrain, groundHeight, terrainHeight, BASES, roadSpawn, setViewScale, waterDepthAt, getSettlement, roadDist, ROAD_HALF, deckHeight, ROUTE_LEN, dustDepth, ROUTE_PTS, nearestRouteIndex } from './terrain.js';
+import { createTerrain, groundHeight, terrainHeight, BASES, roadSpawn, setViewScale, waterDepthAt, getSettlement, roadDist, ROAD_HALF, deckHeight, ROUTE_LEN, dustDepth, pebbleDensity, ROUTE_PTS, nearestRouteIndex } from './terrain.js';
 import { buildBase, updateBases } from './base.js';
 import { createAudio } from './audio.js';
 import { createSeeds, seedsDelivered, LAB } from './seeds.js';
@@ -2198,7 +2198,12 @@ function frame() {
   if (audio) {
     const contacts = W.length ? W.filter((w) => w.sim.contact).length / W.length : 0;
     audio.update({ speed: sim.speed, throttle: sim.cmd.throttle, contact: contacts,
-      boost: sim.cmd.boost, daylight, storm: weather.w });
+      boost: sim.cmd.boost, daylight, storm: weather.w,
+      ground: {
+        soft: clamp(dustDepth(sim.pos.x, sim.pos.z), 0, 1),
+        stones: pebbleDensity(sim.pos.x, sim.pos.z),
+        road: 1 - clamp((roadDist(sim.pos.x, sim.pos.z) - ROAD_HALF * 0.5) / (ROAD_HALF * 0.5), 0, 1),
+      } });
     // Knock when a wheel slams into its bump stop.
     for (const w of W) {
       const hard = w.sim.contact && w.sim.L < SUSP.Lmin + 0.04;
