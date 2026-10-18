@@ -577,6 +577,19 @@ function cycleLamps() {
   document.getElementById('lamps').classList.toggle('on', lampMode !== 0);
   flash(`Світло: ${LAMP_MODES[lampMode].label}`);
 }
+const TYRE_MODES = [
+  { label: 'м\'які', p: 0.7 },
+  { label: 'норма', p: 1 },
+  { label: 'тверді', p: 1.3 },
+];
+let tyreMode = 1;
+function cycleTyres() {
+  tyreMode = (tyreMode + 1) % TYRE_MODES.length;
+  const t = `Тиск у шинах: ${TYRE_MODES[tyreMode].label}`;
+  const b = document.getElementById('tyres');
+  if (b) { b.textContent = t; b.classList.toggle('on', tyreMode !== 1); }
+  flash(t);
+}
 function lampLevel() {
   const fixed = LAMP_MODES[lampMode].level;
   return fixed !== null ? fixed : daylight < 0.45 || stormW > 0.35 ? 2 : 0;
@@ -899,6 +912,7 @@ window.addEventListener('keydown', (e) => {
   if (e.code === 'KeyP') return setAutopilot(!autopilot);
   if (e.code === 'KeyE') return togglePanels();
   if (e.code === 'KeyL') return cycleLamps();
+  if (e.code === 'KeyT') return cycleTyres();
   if (e.code === 'KeyK') return void toggleSound();
   if (e.code === 'KeyO') return menuEl.classList.toggle('show');
   if (e.code === 'KeyU') { wsAuto = false; return toggleWorkshop(); }
@@ -1817,6 +1831,12 @@ function frame() {
     offroadK = off;
     sim.rollMul = (0.7 + 0.3 * off) * (1 + (TR.offRoll - 1) * off);
     sim.dragMul = 1 + (TR.offDrag - 1) * off;
+    // Tyre pressure: soft tyres float on dust and grip loose ground better but waste
+    // energy and wander on the hard road; hard ones are the other way round.
+    const dp = TYRE_MODES[tyreMode].p - 1;
+    const soft = off * Math.min(1, 0.4 + dustDepth(sim.pos.x, sim.pos.z));
+    sim.rollMul *= 1 + dp * (0.9 * soft - 0.5 * (1 - soft));
+    sim.gripMul *= 1 - dp * (0.35 * soft - 0.08 * (1 - soft));
   }
   const wade = Math.min(1, waterDepthAt(sim.pos.x, sim.pos.z) / TR.wade);
   if (wade > 0) {
