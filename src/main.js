@@ -1240,7 +1240,10 @@ function resetVehicle(home = false) {
 function isHung() {
   const touching = sim.wheels.filter((w) => w.contact).length;
   // half the wheels (or fewer) on the ground and going nowhere: propped on the hull, not driving
-  return sim.upY > 0.5 && touching <= sim.wheels.length / 2 && Math.abs(sim.speed) < 1.2;
+  if (sim.upY <= 0.5) return false;
+  if (touching <= sim.wheels.length / 2 && Math.abs(sim.speed) < 1.2) return true;
+  // Throttle held, going nowhere for a while, whatever the wheels touch: high-centred on a crest
+  return stuckFor > 1.5 || stuckMemory > 0;
 }
 function unstick() {
   const yaw = sim.yaw();
@@ -1649,6 +1652,8 @@ let camYaw = sim.yaw();
 let camY = sim.pos.y;
 let flippedFor = 0;
 let hungFor = 0;
+let stuckFor = 0;
+let stuckMemory = 0; // stays on for a few seconds after you let go of the throttle, so R still counts
 const HINT_FLIPPED = 'Перевернулись? Натисни R, щоб поставити на колеса';
 let camMode = 0;
 let orbitAngle = 0;
@@ -1909,6 +1914,9 @@ function frame() {
   sun.target.position.copy(sim.pos);
 
   flippedFor = sim.upY < 0.55 && speedAbs < 2.5 && righting.t <= 0 ? flippedFor + dt : 0;
+  stuckFor = Math.abs(sim.cmd.throttle) > 0.5 && Math.abs(sim.speed) < 0.4 && sim.upY > 0.5 && righting.t <= 0 ? stuckFor + dt : 0;
+  if (stuckFor > 1.5) stuckMemory = 5; else stuckMemory = Math.max(0, stuckMemory - dt);
+  if (Math.abs(sim.speed) > 1.5) stuckMemory = 0;
   hungFor = isHung() && Math.abs(sim.cmd.throttle) > 0.3 && righting.t <= 0 ? hungFor + dt : 0;
   const hintText = hungFor > 1.5 && flippedFor <= 1.0 ? 'Застрягли на камені? Натисни R, щоб зняти ровер' : HINT_FLIPPED;
   if (hudHint.textContent !== hintText) hudHint.textContent = hintText;

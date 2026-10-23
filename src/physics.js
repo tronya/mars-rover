@@ -109,7 +109,7 @@ const GRIP_ANGLE_K = 1.25; // a little past the grip limit: the tail may step ou
 // The other limit is the roll-over one: sideways acceleration at which the inside wheels
 // lift is about g × half-track ÷ centre-of-mass height. On Mars that is under 1.5 m/s² for a
 // tall truck, lower than what the tyres hold, so it is the roll-over that decides.
-const ROLL_LIMIT = 0.65 * GRAVITY * (SPEC.wheelX || 1.7) / (Math.abs(SPEC.comY) + 0.9);
+const ROLL_LIMIT = 0.7 * GRAVITY * (SPEC.wheelX || 1.7) / (Math.abs(SPEC.comY) + 0.9);
 export function steerAuthority(speed, gripMul = 1) {
   const v = Math.max(Math.abs(speed), 0.5);
   const aLat = Math.min(GRIP_ANGLE_K * MU * gripMul * GRAVITY, ROLL_LIMIT);
@@ -125,6 +125,9 @@ const BRAKE_FORCE = 3.2 * CORNER; // per wheel
 // Regolith is soft: a rover that stops pulling slows down noticeably. The linear
 // term is rolling resistance, the quadratic one stands in for churning through dust.
 const ROLLING_RES = 0.17;
+// A road car in deep dust (rollMul 3.2 x dust 1.8) had rolling drag of ~1x its own weight: stuck
+// for good. It should bog down and crawl, not stop; this caps the total at 3x (0.5 W).
+export const ROLL_BOG_MAX = 3.0;
 const TRACTION_SHARE = 0.7; // how much of a tyre's grip the motor may use to accelerate
 const DRAG_V2 = 22 * (SPEC.drag ?? 1); // N per (m/s)^2 — less for a low, light body
 const DOWNFORCE = SPEC.downforce ?? 0; // N per (m/s)^2
@@ -670,7 +673,7 @@ export class VehicleSim {
       let Fx;
       if (cmd.parked) Fx = -grip * Math.tanh(vx / 0.05);
       else {
-        const resist = cmd.brake * BRAKE_FORCE + ROLLING_RES * this.rollMul * (1 + 0.8 * dust) * N + (DRAG_V2 * this.dragMul * vx * vx) / NW;
+        const resist = cmd.brake * BRAKE_FORCE + ROLLING_RES * Math.min(this.rollMul * (1 + 0.8 * dust), ROLL_BOG_MAX) * N + (DRAG_V2 * this.dragMul * vx * vx) / NW;
         const isDriven = this.awd || !w.front;
         // Skid steer (tank-style): no wheel turns; one side is driven harder, or the
         // other way, than the other. Steering left slows or reverses the left side.
